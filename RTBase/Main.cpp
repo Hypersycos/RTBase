@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
 	}
 	Scene* scene = loadScene(sceneName);
 	GamesEngineeringBase::Window canvas;
-	canvas.create((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, "Tracer", 1.0f);
+	canvas.create((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, "Tracer", false);
 	RayTracer rt;
 	rt.init(scene, &canvas);
 	bool running = true;
