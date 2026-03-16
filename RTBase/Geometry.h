@@ -33,16 +33,40 @@ class Plane
 public:
 	Vec3 n;
 	float d;
+
+	Plane(Vec3&& _n, Vec3&& p)
+	{
+		init(_n, p);
+	}
+
+	Plane(Vec3&& _n, float _d)
+	{
+		init(_n, _d);
+	}
+
+	void init(Vec3& _n, Vec3& p)
+	{
+		n = _n;
+		d = -(_n.x * p.x + _n.y * p.y + _n.z * p.z);
+	}
+
 	void init(Vec3& _n, float _d)
 	{
 		n = _n;
 		d = _d;
 	}
 	// Add code here
+
 	bool rayIntersect(Ray& r, float& t)
 	{
-		return false;
+		float denom = n.dot(r.dir);
+		if (denom == 0)
+			return false;
+		t = -(n.dot(r.o) + d) / denom;
+		return t > 0 && true;
 	}
+
+	// Add code here
 };
 
 #define EPSILON 0.001f
@@ -57,6 +81,25 @@ public:
 	float area; // Triangle area
 	float d; // For ray triangle if needed
 	unsigned int materialIndex;
+
+	Triangle()
+	{
+
+	}
+
+	Triangle(Vec3 _v0, Vec3 _v1, Vec3 _v2)
+	{
+		Vec3 e1 = _v2 - _v1;
+		Vec3 e2 = _v0 - _v2;
+		Vec3 n = e1.cross(e2).normalize();
+
+		Vertex v0 = { _v0, n, 0, 0 };
+		Vertex v1 = { _v1, n, 0, 0 };
+		Vertex v2 = { _v2, n, 0, 0 };
+
+		init(v0, v1, v2, 0);
+	}
+
 	void init(Vertex v0, Vertex v1, Vertex v2, unsigned int _materialIndex)
 	{
 		materialIndex = _materialIndex;
@@ -76,8 +119,54 @@ public:
 	// Add code here
 	bool rayIntersect(const Ray& r, float& t, float& u, float& v) const
 	{
+		//plane intersection
+		float denom = n.dot(r.dir);
+		if (denom == 0) { return false; }
+
+		t = (d - n.dot(r.o)) / denom;
+		if (t == NAN || t == INFINITY || t <= 0.0f)
+			return false;
+
+		Vec3 p = r.at(t);
+		float invArea = .5f / area;
+
+		u = e1.cross(p - vertices[1].p).dot(n) * invArea;
+		if (u < 0.0f || u > 1.0f)
+			return false;
+
+		v = e2.cross(p - vertices[2].p).dot(n) * invArea;
+		if (v < 0.0f || (u + v) > 1.0f)
+			return false;
+
 		return true;
 	}
+
+	bool rayIntersectMoller(const Ray& r, float& t, float& u, float& v) const
+	{
+		Vec3 T = r.o - vertices[0].p;
+		Vec3 p = r.dir.cross(e2);
+
+		float invdet = e1.dot(p);
+		if (fabsf(invdet) < 1e-6)
+			return false;
+		
+		invdet = 1 / invdet;
+
+		u = T.dot(p) * invdet;
+		if (u < 0 || u > 1)
+			return false;
+
+		Vec3 q = T.cross(e1);
+
+		v = r.dir.dot(q) * invdet;
+		if (v < 0 || (u + v) > 1)
+			return false;
+
+		t = e2.dot(q) * invdet;
+
+		return t >= 0;
+	}
+
 	void interpolateAttributes(const float alpha, const float beta, const float gamma, Vec3& interpolatedNormal, float& interpolatedU, float& interpolatedV) const
 	{
 		interpolatedNormal = vertices[0].normal * alpha + vertices[1].normal * beta + vertices[2].normal * gamma;
@@ -118,12 +207,32 @@ public:
 	// Add code here
 	bool rayAABB(const Ray& r, float& t)
 	{
-		return true;
+		Vec3 t1 = (min - r.o) * r.invDir;
+		Vec3 t2 = (max - r.o) * r.invDir;
+
+		Vec3 TEntry = Min(t1, t2);
+		Vec3 TExit = Max(t1, t2);
+
+		float tEntry = std::max(TEntry.x, std::max(TEntry.y, TEntry.z));
+		float tExit = std::min(TExit.x, std::min(TExit.y, TExit.z));
+
+		t = std::min(tEntry, tExit);
+
+		return tEntry <= tExit && tExit > 0;
 	}
 	// Add code here
 	bool rayAABB(const Ray& r)
 	{
-		return true;
+		Vec3 t1 = (min - r.o) * r.invDir;
+		Vec3 t2 = (max - r.o) * r.invDir;
+
+		Vec3 TEntry = Min(t1, t2);
+		Vec3 TExit = Max(t1, t2);
+
+		float tEntry = std::max(TEntry.x, std::max(TEntry.y, TEntry.z));
+		float tExit = std::min(TExit.x, std::min(TExit.y, TExit.z));
+
+		return tEntry <= tExit && tExit > 0;
 	}
 	// Add code here
 	float area()
