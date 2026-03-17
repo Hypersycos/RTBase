@@ -151,6 +151,7 @@
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <AdditionalUsingDirectories>
       </AdditionalUsingDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -169,9 +170,11 @@
     </ClCompile>
     <ClCompile Include="PlaneTests.cpp" />
     <ClCompile Include="RayGenerationTests.cpp" />
+    <ClCompile Include="SphereTests.cpp" />
     <ClCompile Include="TriangleTests.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="FloatAsserts.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

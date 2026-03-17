@@ -10,6 +10,7 @@
 #include "GamesEngineeringBase.h"
 #include <thread>
 #include <functional>
+#include <mutex>
 
 class RayTracer
 {
@@ -20,6 +21,10 @@ public:
 	MTRandom *samplers;
 	std::thread **threads;
 	int numProcs;
+	std::atomic<int> tileCount = 0;
+	unsigned int tileSize = 16;
+	unsigned int maxTiles;
+
 	void init(Scene* _scene, GamesEngineeringBase::Window* _canvas)
 	{
 		scene = _scene;
@@ -28,6 +33,7 @@ public:
 		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new BoxFilter());
 		SYSTEM_INFO sysInfo;
 		GetSystemInfo(&sysInfo);
+		maxTiles = std::ceil(film->width / (float)tileSize) * std::ceil(film->height / (float)tileSize);
 		numProcs = sysInfo.dwNumberOfProcessors;
 		threads = new std::thread*[numProcs];
 		samplers = new MTRandom[numProcs];
@@ -81,26 +87,81 @@ public:
 		}
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
-	void render()
+
+	void renderPixel(unsigned int x, unsigned int y)
+	{
+		float px = x + 0.5f;
+		float py = y + 0.5f;
+		Ray ray = scene->camera.generateRay(px, py);
+		Colour col = viewNormals(ray);
+		//Colour col = albedo(ray);
+		film->splat(px, py, col);
+		unsigned char r = (unsigned char)(col.r * 255);
+		unsigned char g = (unsigned char)(col.g * 255);
+		unsigned char b = (unsigned char)(col.b * 255);
+		canvas->draw(x, y, r, g, b);
+	}
+
+	void renderST()
 	{
 		film->incrementSPP();
 		for (unsigned int y = 0; y < film->height; y++)
 		{
 			for (unsigned int x = 0; x < film->width; x++)
 			{
-				float px = x + 0.5f;
-				float py = y + 0.5f;
-				Ray ray = scene->camera.generateRay(px, py);
-				Colour col = viewNormals(ray);
-				//Colour col = albedo(ray);
-				film->splat(px, py, col);
-				unsigned char r = (unsigned char)(col.r * 255);
-				unsigned char g = (unsigned char)(col.g * 255);
-				unsigned char b = (unsigned char)(col.b * 255);
-				canvas->draw(x, y, r, g, b);
+				renderPixel(x, y);
 			}
 		}
 	}
+
+	void renderMT()
+	{
+		tileCount = 0;
+
+		auto renderThread = [&]()
+			{
+				unsigned int myTile;
+				while ((myTile = tileCount++) < maxTiles)
+				{
+					renderTile(myTile);
+				}
+			};
+
+		for (int i = 0; i < numProcs; i++)
+		{
+			threads[i] = new std::thread{ renderThread };
+		}
+		for (int i = 0; i < numProcs; i++)
+		{
+			threads[i]->join();
+			delete threads[i];
+		}
+	}
+
+	void render()
+	{
+		renderMT();
+	}
+
+	void renderTile(unsigned int index)
+	{
+		unsigned int tilesPerRow = (film->width / tileSize);
+
+		unsigned int ystart = index / tilesPerRow * tileSize;
+		unsigned int xstart = index % tilesPerRow * tileSize;
+		unsigned int xend = std::min(xstart + tileSize, film->width);
+		unsigned int yend = std::min(ystart + tileSize, film->height);
+
+		film->incrementSPP();
+		for (unsigned int y = ystart; y < yend; y++)
+		{
+			for (unsigned int x = xstart; x < xend; x++)
+			{
+				renderPixel(x, y);
+			}
+		}
+	}
+
 	int getSPP()
 	{
 		return film->SPP;

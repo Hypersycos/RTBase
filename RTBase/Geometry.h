@@ -117,15 +117,13 @@ public:
 		return (vertices[0].p + vertices[1].p + vertices[2].p) / 3.0f;
 	}
 	// Add code here
-	bool rayIntersect(const Ray& r, float& t, float& u, float& v) const
+	bool rayIntersectSimple(const Ray& r, float& t, float& u, float& v) const
 	{
 		//plane intersection
 		float denom = n.dot(r.dir);
-		if (denom == 0) { return false; }
-
-		t = (d - n.dot(r.o)) / denom;
-		if (t == NAN || t == INFINITY || t <= 0.0f)
+		if (denom == 0)
 			return false;
+		t = (d - n.dot(r.o)) / denom;
 
 		Vec3 p = r.at(t);
 		float invArea = .5f / area;
@@ -143,28 +141,36 @@ public:
 
 	bool rayIntersectMoller(const Ray& r, float& t, float& u, float& v) const
 	{
-		Vec3 T = r.o - vertices[0].p;
-		Vec3 p = r.dir.cross(e2);
+		Vec3 e1 = vertices[1].p - vertices[0].p;
+		Vec3 e2 = vertices[2].p - vertices[0].p;
 
-		float invdet = e1.dot(p);
+		Vec3 T = r.o - vertices[0].p;
+		Vec3 rayCrossE2 = r.dir.cross(e2);
+
+		float invdet = e1.dot(rayCrossE2);
 		if (fabsf(invdet) < 1e-6)
 			return false;
 		
 		invdet = 1 / invdet;
 
-		u = T.dot(p) * invdet;
+		u = T.dot(rayCrossE2) * invdet;
 		if (u < 0 || u > 1)
 			return false;
 
-		Vec3 q = T.cross(e1);
+		Vec3 TCrossE1 = T.cross(e1);
 
-		v = r.dir.dot(q) * invdet;
+		v = r.dir.dot(TCrossE1) * invdet;
 		if (v < 0 || (u + v) > 1)
 			return false;
 
-		t = e2.dot(q) * invdet;
+		t = e2.dot(TCrossE1) * invdet;
 
 		return t >= 0;
+	}
+
+	bool rayIntersect(const Ray& r, float& t, float& u, float& v) const
+	{
+		return rayIntersectSimple(r, t, u, v);
 	}
 
 	void interpolateAttributes(const float alpha, const float beta, const float gamma, Vec3& interpolatedNormal, float& interpolatedU, float& interpolatedV) const
@@ -194,6 +200,11 @@ public:
 	{
 		reset();
 	}
+
+	AABB(Vec3 min, Vec3 max) : max(max), min(min)
+	{
+	}
+
 	void reset()
 	{
 		max = Vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
@@ -255,7 +266,26 @@ public:
 	// Add code here
 	bool rayIntersect(Ray& r, float& t)
 	{
-		return false;
+		Vec3 l = r.o - centre;
+		float b = l.dot(r.dir);
+		float c = l.dot(l) - radius * radius;
+		float discriminant = b * b - c;
+
+		if (discriminant < 0)
+			return false;
+		else if (discriminant == 0)
+		{
+			t = -b;
+			return true;
+		}
+		else
+		{
+			float sqrRtDiscriminant = std::sqrtf(discriminant);
+			t = -b - sqrRtDiscriminant;
+			if (t < 0)
+				t = -b + sqrRtDiscriminant;
+			return true;
+		}
 	}
 };
 

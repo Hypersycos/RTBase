@@ -8,13 +8,13 @@ using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
 namespace UnitTest1
 {
-	TEST_CLASS(TriangleTests)
+	TEST_CLASS(SphereTests)
 	{
-	public:
+/*	public:
 		TEST_METHOD(RayIntersectsTriangleCentre)
 		{
 			Ray r = { {0, 0.5f, 0}, {1, 0, 0} };
-			Triangle T { Vec3{ 1, 0, 1 }, Vec3{ 1, 1, 0 }, Vec3{ 1, 0, -1 } };
+			Triangle T{ Vec3{ 1, 0, 1 }, Vec3{ 1, 1, 0 }, Vec3{ 1, 0, -1 } };
 
 			float t, u, v;
 			Assert::IsTrue(T.rayIntersect(r, t, u, v));
@@ -108,6 +108,6 @@ namespace UnitTest1
 			float t, u, v;
 			T.rayIntersect(r, t, u, v);
 			AssertFuzzyEqual(0.8f, v);
-		}
+		}*/
 	};
 }

@@ -30,9 +30,15 @@
     <ClCompile Include="RayGenerationTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SphereTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FloatAsserts.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
