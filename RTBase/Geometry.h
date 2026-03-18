@@ -141,10 +141,12 @@ public:
 
 	bool rayIntersectMoller(const Ray& r, float& t, float& u, float& v) const
 	{
-		Vec3 e1 = vertices[1].p - vertices[0].p;
-		Vec3 e2 = vertices[2].p - vertices[0].p;
+		//Vec3 e1 = vertices[1].p - vertices[0].p;
+		//Vec3 e2 = vertices[2].p - vertices[0].p;
 
-		Vec3 T = r.o - vertices[0].p;
+		Vec3 e1 = -this->e1;
+
+		Vec3 T = r.o - vertices[2].p;
 		Vec3 rayCrossE2 = r.dir.cross(e2);
 
 		float invdet = e1.dot(rayCrossE2);
@@ -170,7 +172,7 @@ public:
 
 	bool rayIntersect(const Ray& r, float& t, float& u, float& v) const
 	{
-		return rayIntersectSimple(r, t, u, v);
+		return rayIntersectMoller(r, t, u, v);
 	}
 
 	void interpolateAttributes(const float alpha, const float beta, const float gamma, Vec3& interpolatedNormal, float& interpolatedU, float& interpolatedV) const

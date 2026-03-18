@@ -132,7 +132,7 @@ class ImageFilter
 {
 public:
 	virtual float filter(const float x, const float y) const = 0;
-	virtual int size() const = 0;
+	virtual unsigned int size() const = 0;
 };
 
 class BoxFilter : public ImageFilter
@@ -146,9 +146,82 @@ public:
 		}
 		return 0;
 	}
-	int size() const
+	unsigned int size() const
 	{
 		return 0;
+	}
+};
+
+class GaussianFilter : public ImageFilter
+{
+	float radius;
+	float alpha;
+	float limit;
+
+	float G(float d) const
+	{
+		return std::pow(M_E, -alpha * d * d) - limit;
+	}
+
+public:
+	GaussianFilter(float alpha, float radius) : alpha(alpha), radius(radius)
+	{
+		limit = std::pow(M_E, -alpha * radius * radius);
+	}
+
+	float filter(float x, float y) const
+	{
+		return G(x) * G(y);
+	}
+
+	unsigned int size() const
+	{
+		return std::ceil(radius);
+	}
+};
+
+class MitchellNetravaliFilter : public ImageFilter
+{
+	float B;
+	float C;
+
+	float h(float x) const
+	{
+		float absX = fabsf(x);
+		float absX2 = absX * absX;
+		float absX3 = absX2 * absX;
+		if (absX < 1)
+		{
+			return 1 / 6 * ((12 - 9 * B - 6 * C) * absX3
+				+ (-18 + 12 * B + 6 * C) * absX2
+				+ (6 - 2 * B));
+		}
+		else if (absX < 2)
+		{
+			return 1 / 6 * ((-B - 6 * C) * absX3
+				+ (6 * B + 30 * C) * absX2
+				+ (-12 * B - 48 * C) * absX
+				+ (8 * B + 24 * C));
+		}
+		else
+		{
+			return 0;
+		}
+	}
+
+public:
+	MitchellNetravaliFilter(float B = 1/3, float C = 1/3) : B(B), C(C)
+	{
+	}
+
+	float filter(float x, float y) const
+	{
+		return h(x) * h(y);
+	}
+
+	unsigned int size() const
+	{
+		return 2;
 	}
 };
 
@@ -160,13 +233,70 @@ public:
 	unsigned int height;
 	int SPP;
 	ImageFilter* filter;
+
+	unsigned int xyToIndex(unsigned int x, unsigned int y)
+	{
+		return x + y * width;
+	}
+
+	Colour& operator()(int x, int y)
+	{
+		return film[xyToIndex(x, y)];
+	}
+
 	void splat(const float x, const float y, const Colour& L)
 	{
 		// Code to splat a smaple with colour L into the image plane using an ImageFilter
+
+		float total = 0;
+		int size = filter->size();
+
+		std::vector<unsigned int> indices;
+		indices.reserve(size);
+		std::vector<float> filterWeights;
+		filterWeights.reserve(size);
+
+		for (int i = -size; i <= size; i++)
+		{
+			for (int j = -size; j <= size; j++)
+			{
+				int px = (int)x + j;
+				int py = (int)y + i;
+				if (px >= 0 && px < width && py >= 0 && py < height)
+				{
+					indices.push_back((py * width) + px);
+					float weight = filter->filter(px - x, py - y);
+					filterWeights.push_back(weight);
+					total += weight;
+				}
+			}
+		}
+
+		for (int i = 0; i < indices.size(); i++)
+		{
+			film[indices[i]] = film[indices[i]] + (L * filterWeights[i] / total);
+		}
 	}
+
 	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
-		// Return a tonemapped pixel at coordinates x, y
+		static auto C = [](float x, float A, float B, float C, float D, float E, float F)
+			{
+				return (x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F) - E / F;
+			};
+		static auto C2 = [&](float x)
+			{
+				return C(x, 0.15f, 0.5f, 0.1f, 0.2f, 0.02f, 0.3f);
+			};
+
+		Colour& c = operator()(x, y);
+		float L_in = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+		float L_out = C2(L_in) / C2(11.2);
+		float scalar = L_out / L_in;
+		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
+		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
+		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
 	}
 	// Do not change any code below this line
 	void init(int _width, int _height, ImageFilter* _filter)
