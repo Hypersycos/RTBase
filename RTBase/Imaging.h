@@ -210,7 +210,7 @@ class MitchellNetravaliFilter : public ImageFilter
 	}
 
 public:
-	MitchellNetravaliFilter(float B = 1/3, float C = 1/3) : B(B), C(C)
+	MitchellNetravaliFilter(float B = 1.0f/3.0f, float C = 1.0f/3.0f) : B(B), C(C)
 	{
 	}
 
@@ -265,7 +265,7 @@ public:
 				if (px >= 0 && px < width && py >= 0 && py < height)
 				{
 					indices.push_back((py * width) + px);
-					float weight = filter->filter(px - x, py - y);
+					float weight = filter->filter(px - x + .5f, py - y + .5f);
 					filterWeights.push_back(weight);
 					total += weight;
 				}
@@ -278,7 +278,7 @@ public:
 		}
 	}
 
-	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	void tonemapFilmic(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
 		static auto C = [](float x, float A, float B, float C, float D, float E, float F)
 			{
@@ -290,14 +290,32 @@ public:
 			};
 
 		Colour& c = operator()(x, y);
-		float L_in = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+		float L_in = c.Lum();
 
 		float L_out = C2(L_in) / C2(11.2);
+		L_out = std::powf(L_out, 1.0f / 2.2f);
 		float scalar = L_out / L_in;
 		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
 		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
 		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
 	}
+
+	void tonemapLinear(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	{
+		Colour& c = operator()(x, y);
+		float L_in = c.Lum();
+
+		float scalar = std::powf(L_in * std::powf(2, exposure), 1.0f / 2.2f);
+		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
+		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
+		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
+	}
+
+	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	{
+		tonemapLinear(x, y, r, g, b, exposure);
+	}
+
 	// Do not change any code below this line
 	void init(int _width, int _height, ImageFilter* _filter)
 	{
