@@ -278,6 +278,28 @@ public:
 		}
 	}
 
+	void tonemapLinearWithExposure(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	{
+		Colour& c = operator()(x, y);
+		float L_in = c.Lum();
+
+		float scalar = std::powf(L_in * std::powf(2, exposure), 1.0f / 2.2f);
+		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
+		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
+		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
+	}
+
+	void tonemapReinhard(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	{
+		Colour& c = operator()(x, y);
+		float L_in = c.Lum();
+
+		float scalar = std::powf(L_in / (1 + L_in), 1.0f / 2.2f);
+		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
+		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
+		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
+	}
+
 	void tonemapFilmic(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
 		static auto C = [](float x, float A, float B, float C, float D, float E, float F)
@@ -295,17 +317,6 @@ public:
 		float L_out = C2(L_in) / C2(11.2);
 		L_out = std::powf(L_out, 1.0f / 2.2f);
 		float scalar = L_out / L_in;
-		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
-		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
-		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
-	}
-
-	void tonemapLinear(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
-	{
-		Colour& c = operator()(x, y);
-		float L_in = c.Lum();
-
-		float scalar = std::powf(L_in * std::powf(2, exposure), 1.0f / 2.2f);
 		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
 		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
 		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
