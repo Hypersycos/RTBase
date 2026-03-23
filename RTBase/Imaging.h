@@ -192,13 +192,13 @@ class MitchellNetravaliFilter : public ImageFilter
 		float absX3 = absX2 * absX;
 		if (absX < 1)
 		{
-			return 1 / 6 * ((12 - 9 * B - 6 * C) * absX3
+			return 1.0f / 6.0f * ((12 - 9 * B - 6 * C) * absX3
 				+ (-18 + 12 * B + 6 * C) * absX2
 				+ (6 - 2 * B));
 		}
 		else if (absX < 2)
 		{
-			return 1 / 6 * ((-B - 6 * C) * absX3
+			return 1.0f / 6.0f * ((-B - 6 * C) * absX3
 				+ (6 * B + 30 * C) * absX2
 				+ (-12 * B - 48 * C) * absX
 				+ (8 * B + 24 * C));
@@ -252,9 +252,9 @@ public:
 		int size = filter->size();
 
 		std::vector<unsigned int> indices;
-		indices.reserve(size);
+		indices.reserve(size * size);
 		std::vector<float> filterWeights;
-		filterWeights.reserve(size);
+		filterWeights.reserve(size * size);
 
 		for (int i = -size; i <= size; i++)
 		{
@@ -283,10 +283,13 @@ public:
 		Colour& c = operator()(x, y);
 		float L_in = c.Lum();
 
-		float scalar = std::powf(L_in * std::powf(2, exposure), 1.0f / 2.2f);
-		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
-		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
-		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
+		float scalar = L_in * std::powf(2, exposure);
+		scalar = std::powf(scalar, 1.0f / 2.2f);
+		scalar = std::min<float>(scalar * 255, 255);
+
+		r = std::round(scalar * c.r);
+		g = std::round(scalar * c.g);
+		b = std::round(scalar * c.b);
 	}
 
 	void tonemapReinhard(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
@@ -294,10 +297,13 @@ public:
 		Colour& c = operator()(x, y);
 		float L_in = c.Lum();
 
-		float scalar = std::powf(L_in / (1 + L_in), 1.0f / 2.2f);
-		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
-		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
-		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
+		float scalar = L_in / (1 + L_in);
+		scalar = std::powf(scalar, 1.0f / 2.2f);
+		scalar = std::min<float>(scalar * 255, 255);
+
+		r = std::round(scalar * c.r);
+		g = std::round(scalar * c.g);
+		b = std::round(scalar * c.b);
 	}
 
 	void tonemapFilmic(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
@@ -317,14 +323,40 @@ public:
 		float L_out = C2(L_in) / C2(11.2);
 		L_out = std::powf(L_out, 1.0f / 2.2f);
 		float scalar = L_out / L_in;
-		r = std::clamp<unsigned char>(std::round(scalar * c.r * 255), 0, 255);
-		g = std::clamp<unsigned char>(std::round(scalar * c.g * 255), 0, 255);
-		b = std::clamp<unsigned char>(std::round(scalar * c.b * 255), 0, 255);
+		scalar = std::min<float>(scalar * 255, 255);
+
+		float L_disp = std::min(L_out, 1.0f);
+		float scalar2 = L_disp / L_in;
+		float maxClamp = std::min({ 1 / c.r, 1 / c.g, 1 / c.b });
+		scalar2 = std::min(scalar2, maxClamp) * 255;
+
+		r = std::round(scalar2 * c.r);
+		g = std::round(scalar2 * c.g);
+		b = std::round(scalar2 * c.b);
+
+/*		float L_out = C2(L_in) / C2(11.2);
+		float scalar = L_out / L_in;
+		scalar = std::powf(scalar, 1.0f / 2.2f);
+		scalar = std::clamp<float>(scalar * 255, 0, 255);
+
+		r = std::round(scalar * c.r);
+		g = std::round(scalar * c.g);
+		b = std::round(scalar * c.b);*/
+	}
+
+	void tonemapPassthrough(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	{
+		Colour& c = operator()(x, y);
+		float scalar = 255;
+
+		r = std::round(scalar * c.r);
+		g = std::round(scalar * c.g);
+		b = std::round(scalar * c.b);
 	}
 
 	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
-		tonemapLinear(x, y, r, g, b, exposure);
+		tonemapFilmic(x, y, r, g, b, exposure);
 	}
 
 	// Do not change any code below this line

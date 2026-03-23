@@ -136,7 +136,7 @@ public:
 
 	void render()
 	{
-		renderMT();
+		renderST();
 		for (unsigned int y = 0; y < film->height; y++)
 		{
 			for (unsigned int x = 0; x < film->width; x++)

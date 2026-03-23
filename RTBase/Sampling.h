@@ -31,32 +31,41 @@ class SamplingDistributions
 public:
 	static Vec3 uniformSampleHemisphere(float r1, float r2)
 	{
-		// Add code here
-		return Vec3(0, 0, 1);
+		float theta = std::acosf(r1);
+		float phi = 2 * M_PI * r2;
+		return SphericalCoordinates::sphericalToWorld(theta, phi);
 	}
 	static float uniformHemispherePDF(const Vec3 wi)
 	{
-		// Add code here
-		return 1.0f;
+		return M_1_PI / 2;
 	}
 	static Vec3 cosineSampleHemisphere(float r1, float r2)
 	{
-		// Add code here
-		return Vec3(0, 0, 1);
+		float theta = std::acosf(std::sqrtf(r1));
+		float phi = 2 * M_PI * r2;
+		return SphericalCoordinates::sphericalToWorld(theta, phi);
 	}
 	static float cosineHemispherePDF(const Vec3 wi)
 	{
 		// Add code here
-		return 1.0f;
+		return SphericalCoordinates::sphericalTheta(wi) * M_1_PI;
 	}
 	static Vec3 uniformSampleSphere(float r1, float r2)
 	{
 		// Add code here
-		return Vec3(0, 0, 1);
+		float theta = std::acos(1 - 2 * r1);
+		float phi = 2 * M_PI * r2;
+		return SphericalCoordinates::sphericalToWorld(theta, phi);
 	}
 	static float uniformSpherePDF(const Vec3& wi)
 	{
 		// Add code here
-		return 1.0f;
+		return M_1_PI / 4;
+	}
+
+	static void uniformSampleTriangle(float r1, float r2, float& a, float& b)
+	{
+		a = 1 - std::sqrtf(r1);
+		b = r2 * std::sqrtf(r1);
 	}
 };
