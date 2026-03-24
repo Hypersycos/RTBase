@@ -86,6 +86,8 @@ public:
 	void build()
 	{
 		// Add BVH building code here
+		bvh = new BVHNode();
+		bvh->buildRoot(triangles);
 		
 		// Do not touch the code below this line!
 		// Build light list
@@ -102,7 +104,7 @@ public:
 	}
 	IntersectionData traverse(const Ray& ray)
 	{
-		IntersectionData intersection;
+/*		IntersectionData intersection;
 		intersection.t = FLT_MAX;
 		for (int i = 0; i < triangles.size(); i++)
 		{
@@ -121,7 +123,8 @@ public:
 				}
 			}
 		}
-		return intersection;
+		return intersection;*/
+		return bvh->traverse(ray, triangles);
 	}
 	Light* sampleLight(Sampler* sampler, float& pmf)
 	{

@@ -2,6 +2,8 @@
 
 #include "Core.h"
 #include "Sampling.h"
+#include <numeric>
+#include <stack>
 
 class Ray
 {
@@ -307,6 +309,108 @@ struct IntersectionData
 
 class BVHNode
 {
+private:
+	void sortTriangles(const std::vector<Triangle>& triangles, const std::vector<unsigned int>& indices, std::vector<std::vector<unsigned int>>& sortedIndices)
+	{
+		sortedIndices.resize(3);
+		for (unsigned int i = 0; i < 3; i++)
+		{
+			sortedIndices[i].resize(triangles.size());
+			std::copy(indices.begin(), indices.end(), sortedIndices[i].begin());
+			std::sort(sortedIndices[i].begin(), sortedIndices[i].end(), [&](unsigned int a, unsigned int b) {return triangles[a].centre().coords[i] < triangles[b].centre().coords[i]; });
+		}
+	}
+
+	bool getSplit(const std::vector<Triangle>& triangles, std::vector<std::vector<unsigned int>>& sortedIndices, unsigned int& index, unsigned int& axis)
+	{
+		float bestCost = FLT_MAX;
+		for (unsigned int i = 0; i < 3; i++)
+		{
+			unsigned int axisIndex;
+			float cost = getSplitForAxis(triangles, sortedIndices[i], axisIndex);
+			if (cost < bestCost)
+			{
+				index = axisIndex;
+				axis = i;
+				bestCost = cost;
+			}
+		}
+
+		float parentCost = sortedIndices[0].size() * bounds.area();// - C_bounds / C_isect * area_parent
+
+		if (parentCost <= bestCost)
+			return false;
+
+		return true;
+	}
+
+	float getSplitForAxis(const std::vector<Triangle>& triangles, std::vector<unsigned int>& sortedIndices, unsigned int& index)
+	{
+		float bestCost = FLT_MAX;
+
+		for (unsigned int i = 0; i < sortedIndices.size() - 1; i++)
+		{
+			float cost = getCostForSplit(triangles, sortedIndices, i);
+			if (cost < bestCost)
+				bestCost = cost;
+		}
+
+		return bestCost;
+	}
+
+	float getCostForSplit(const std::vector<Triangle>& triangles, std::vector<unsigned int>& sortedIndices, float split_pos)
+	{
+		AABB leftBox, rightBox;
+		unsigned int leftCount = 0, rightCount = 0;
+
+		for (unsigned int i = 0; i <= split_pos; i++)
+		{
+			for (unsigned int j = 0; j < 3; j++)
+				leftBox.extend(triangles[sortedIndices[i]].vertices[j].p);
+		}
+
+		for (unsigned int i = split_pos + 1; i < sortedIndices.size(); i++)
+		{
+			for (unsigned int j = 0; j < 3; j++)
+				rightBox.extend(triangles[sortedIndices[i]].vertices[j].p);
+		}
+
+		return leftCount * leftBox.area() + rightCount * rightBox.area();
+	}
+
+	// Note there are several options for how to implement the build method. Update this as required
+	void build(const std::vector<Triangle>& triangles, const std::vector<unsigned int>& indices)
+	{
+		// Add BVH building code here
+		for (unsigned int i = 0; i < indices.size(); i++)
+		{
+			for (unsigned int j = 0; j < 3; j++)
+				bounds.extend(triangles[indices[i]].vertices[j].p);
+		}
+
+		std::vector<std::vector<unsigned int>> sortedIndices;
+		sortTriangles(triangles, indices, sortedIndices);
+		unsigned int splitIndex, axis;
+		if (!getSplit(triangles, sortedIndices, splitIndex, axis))
+		{
+			this->triangles.resize(indices.size());
+			std::copy(indices.begin(), indices.end(), this->triangles.begin());
+		}
+		else
+		{
+			l = new BVHNode();
+			std::vector<unsigned int> nextIndices;
+			nextIndices.resize(splitIndex + 1);
+			std::copy(sortedIndices[axis].begin(), sortedIndices[axis].begin() + splitIndex + 1, nextIndices.begin());
+			l->build(triangles, nextIndices);
+
+			r = new BVHNode();
+			nextIndices.resize(indices.size() - splitIndex - 1);
+			std::copy(sortedIndices[axis].begin() + splitIndex + 1, sortedIndices[axis].end(), nextIndices.begin());
+			r->build(triangles, nextIndices);
+		}
+	}
+
 public:
 	AABB bounds;
 	BVHNode* r;
@@ -315,19 +419,70 @@ public:
 	// But you can store this however you want!
 	// unsigned int offset;
 	// unsigned char num;
+	std::vector<unsigned int> triangles;
+
 	BVHNode()
 	{
 		r = NULL;
 		l = NULL;
 	}
-	// Note there are several options for how to implement the build method. Update this as required
-	void build(std::vector<Triangle>& inputTriangles)
+
+	~BVHNode()
 	{
-		// Add BVH building code here
+		if (r != nullptr)
+			delete r;
+		if (l != nullptr)
+			delete l;
 	}
+
+	void buildRoot(const std::vector<Triangle>& triangles)
+	{
+		std::vector<unsigned int> indices;
+		indices.resize(triangles.size());
+		std::iota(indices.begin(), indices.end(), 0);
+		build(triangles, indices);
+	}
+
 	void traverse(const Ray& ray, const std::vector<Triangle>& triangles, IntersectionData& intersection)
 	{
 		// Add BVH Traversal code here
+		std::stack<BVHNode*> nodeStack;
+		nodeStack.push(this);
+
+		while (!nodeStack.empty())
+		{
+			BVHNode* node = nodeStack.top();
+
+			if (!node->bounds.rayAABB(ray))
+			{
+				nodeStack.pop();
+				continue;
+			}
+
+			if (node->l == nullptr)
+			{
+				for (unsigned int index : node->triangles)
+				{
+					float t, alpha, beta;
+					if (triangles[index].rayIntersect(ray, t, alpha, beta))
+					{
+						if (t < intersection.t)
+						{
+							intersection.t = t;
+							intersection.alpha = alpha;
+							intersection.beta = beta;
+							intersection.gamma = 1 - alpha - beta;
+							intersection.ID = index;
+						}
+					}
+				}
+				return;
+			}
+
+			nodeStack.pop();
+			nodeStack.push(node->l);
+			nodeStack.push(node->r);
+		}
 	}
 	IntersectionData traverse(const Ray& ray, const std::vector<Triangle>& triangles)
 	{
@@ -339,6 +494,36 @@ public:
 	bool traverseVisible(const Ray& ray, const std::vector<Triangle>& triangles, const float maxT)
 	{
 		// Add visibility code here
+		std::stack<BVHNode*> nodeStack;
+		nodeStack.push(this);
+
+		while (!nodeStack.empty())
+		{
+			BVHNode* node = nodeStack.top();
+
+			if (!node->bounds.rayAABB(ray))
+			{
+				nodeStack.pop();
+				continue;
+			}
+
+			if (node->l == nullptr)
+			{
+				for (unsigned int index : node->triangles)
+				{
+					float t, alpha, beta;
+					if (triangles[index].rayIntersect(ray, t, alpha, beta))
+					{
+						return false;
+					}
+				}
+				return true;
+			}
+
+			nodeStack.pop();
+			nodeStack.push(node->l);
+			nodeStack.push(node->r);
+		}
 		return true;
 	}
 };
