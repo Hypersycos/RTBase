@@ -30,7 +30,7 @@ public:
 		scene = _scene;
 		canvas = _canvas;
 		film = new Film();
-		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new BoxFilter());
+		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new MitchellNetravaliFilter());
 		SYSTEM_INFO sysInfo;
 		GetSystemInfo(&sysInfo);
 		maxTiles = std::ceil(film->width / (float)tileSize) * std::ceil(film->height / (float)tileSize);
@@ -87,13 +87,31 @@ public:
 		}
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
+	Colour fakeShading(Ray& r, float percentMultNormal = 0.2, float percentAddNormal = 0.01)
+	{
+		IntersectionData intersection = scene->traverse(r);
+		if (intersection.t < FLT_MAX)
+		{
+			ShadingData shadingData = scene->calculateShadingData(intersection, r);
+			Colour normal = Colour(fabsf(shadingData.sNormal.x), fabsf(shadingData.sNormal.y), fabsf(shadingData.sNormal.z));
+			Colour albedo;
+			if (shadingData.bsdf->isLight())
+				albedo = shadingData.bsdf->emit(shadingData, shadingData.wo);
+			else
+				albedo = shadingData.bsdf->evaluate(shadingData, Vec3(0, 1, 0));
+
+			//return normal * percentNormal + albedo * (1 - percentNormal);
+			return albedo * (1 - percentMultNormal - percentAddNormal) + albedo * normal * percentMultNormal + normal * percentAddNormal;
+		}
+		return Colour(0.0f, 0.0f, 0.0f);
+	}
 
 	void renderPixel(unsigned int x, unsigned int y)
 	{
 		float px = x + 0.5f;
 		float py = y + 0.5f;
 		Ray ray = scene->camera.generateRay(px, py);
-		Colour col = viewNormals(ray);// *0.1 + albedo(ray) * 0.9;
+		Colour col = fakeShading(ray, 0.2, 0.003);
 		film->splat(px, py, col);
 	}
 

@@ -77,6 +77,7 @@ class Triangle
 {
 public:
 	Vertex vertices[3];
+	Vec3 e0;
 	Vec3 e1; // Edge 1
 	Vec3 e2; // Edge 2
 	Vec3 n; // Geometric Normal
@@ -108,6 +109,7 @@ public:
 		vertices[0] = v0;
 		vertices[1] = v1;
 		vertices[2] = v2;
+		e0 = vertices[1].p - vertices[0].p;
 		e1 = vertices[2].p - vertices[1].p;
 		e2 = vertices[0].p - vertices[2].p;
 		n = e1.cross(e2).normalize();
@@ -143,38 +145,35 @@ public:
 
 	bool rayIntersectMoller(const Ray& r, float& t, float& u, float& v) const
 	{
-		//Vec3 e1 = vertices[1].p - vertices[0].p;
-		//Vec3 e2 = vertices[2].p - vertices[0].p;
+		Vec3 e1 = -this->e2;
 
-		Vec3 e1 = -this->e1;
+		Vec3 T = r.o - vertices[0].p;
+		Vec3 rayCrossE1 = r.dir.cross(e1);
 
-		Vec3 T = r.o - vertices[2].p;
-		Vec3 rayCrossE2 = r.dir.cross(e2);
-
-		float invdet = e1.dot(rayCrossE2);
+		float invdet = e0.dot(rayCrossE1);
 		if (fabsf(invdet) < 1e-6)
 			return false;
 		
 		invdet = 1 / invdet;
 
-		u = T.dot(rayCrossE2) * invdet;
+		u = T.dot(rayCrossE1) * invdet;
 		if (u < 0 || u > 1)
 			return false;
 
-		Vec3 TCrossE1 = T.cross(e1);
+		Vec3 TCrossE0 = T.cross(e0);
 
-		v = r.dir.dot(TCrossE1) * invdet;
+		v = r.dir.dot(TCrossE0) * invdet;
 		if (v < 0 || (u + v) > 1)
 			return false;
 
-		t = e2.dot(TCrossE1) * invdet;
+		t = e1.dot(TCrossE0) * invdet;
 
 		return t >= 0;
 	}
 
 	bool rayIntersect(const Ray& r, float& t, float& u, float& v) const
 	{
-		return rayIntersectSimple(r, t, u, v);
+		return rayIntersectMoller(r, t, u, v);
 	}
 
 	void interpolateAttributes(const float alpha, const float beta, const float gamma, Vec3& interpolatedNormal, float& interpolatedU, float& interpolatedV) const
