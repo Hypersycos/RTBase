@@ -93,8 +93,7 @@ public:
 		float px = x + 0.5f;
 		float py = y + 0.5f;
 		Ray ray = scene->camera.generateRay(px, py);
-		Colour col = viewNormals(ray);
-		//Colour col = albedo(ray);
+		Colour col = viewNormals(ray);// *0.1 + albedo(ray) * 0.9;
 		film->splat(px, py, col);
 	}
 
@@ -136,7 +135,7 @@ public:
 
 	void render()
 	{
-		renderST();
+		renderMT();
 		for (unsigned int y = 0; y < film->height; y++)
 		{
 			for (unsigned int x = 0; x < film->width; x++)

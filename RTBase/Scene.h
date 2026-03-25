@@ -157,7 +157,7 @@ public:
 		float maxT = dir.length() - (2.0f * EPSILON);
 		dir = dir.normalize();
 		ray.init(p1 + (dir * EPSILON), dir);
-		return bvh->traverseVisible(ray, triangles, maxT);
+		return bvh->traverseVisible(ray, maxT, triangles);
 	}
 	Colour emit(Triangle* light, ShadingData shadingData, Vec3 wi)
 	{

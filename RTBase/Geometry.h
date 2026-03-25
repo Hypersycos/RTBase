@@ -174,7 +174,7 @@ public:
 
 	bool rayIntersect(const Ray& r, float& t, float& u, float& v) const
 	{
-		return rayIntersectMoller(r, t, u, v);
+		return rayIntersectSimple(r, t, u, v);
 	}
 
 	void interpolateAttributes(const float alpha, const float beta, const float gamma, Vec3& interpolatedNormal, float& interpolatedU, float& interpolatedV) const
@@ -305,121 +305,192 @@ struct IntersectionData
 #define MAXNODE_TRIANGLES 8
 #define TRAVERSE_COST 1.0f
 #define TRIANGLE_COST 2.0f
-#define BUILD_BINS 32
+#define BUILD_BINS 10
 
 class BVHNode
 {
 private:
-	void sortTriangles(const std::vector<Triangle>& triangles, const std::vector<unsigned int>& indices, std::vector<std::vector<unsigned int>>& sortedIndices)
-	{
-		sortedIndices.resize(3);
-		for (unsigned int i = 0; i < 3; i++)
-		{
-			sortedIndices[i].resize(triangles.size());
-			std::copy(indices.begin(), indices.end(), sortedIndices[i].begin());
-			std::sort(sortedIndices[i].begin(), sortedIndices[i].end(), [&](unsigned int a, unsigned int b) {return triangles[a].centre().coords[i] < triangles[b].centre().coords[i]; });
-		}
-	}
-
-	bool getSplit(const std::vector<Triangle>& triangles, std::vector<std::vector<unsigned int>>& sortedIndices, unsigned int& index, unsigned int& axis)
+	bool getSplit(const std::vector<Triangle>& triangles, std::vector<unsigned int>& indices, unsigned int start, unsigned int count, float& splitPos, unsigned int& axis)
 	{
 		float bestCost = FLT_MAX;
 		for (unsigned int i = 0; i < 3; i++)
 		{
-			unsigned int axisIndex;
-			float cost = getSplitForAxis(triangles, sortedIndices[i], axisIndex);
+			float axisSplitPos;
+			float cost = getSplitForAxis(triangles, indices, start, count, i, axisSplitPos);
 			if (cost < bestCost)
 			{
-				index = axisIndex;
+				splitPos = axisSplitPos;
 				axis = i;
 				bestCost = cost;
 			}
 		}
 
-		float parentCost = sortedIndices[0].size() * bounds.area();// - C_bounds / C_isect * area_parent
+		float parentCost = count * bounds.area();// - C_bounds / C_isect * area_parent
 
-		if (parentCost <= bestCost)
+		if (bestCost > parentCost)
 			return false;
 
 		return true;
 	}
 
-	float getSplitForAxis(const std::vector<Triangle>& triangles, std::vector<unsigned int>& sortedIndices, unsigned int& index)
+	float getSplitForAxis(const std::vector<Triangle>& triangles, std::vector<unsigned int>& indices, unsigned int start, unsigned int count, unsigned int axis, float& splitPos)
 	{
 		float bestCost = FLT_MAX;
 
-		for (unsigned int i = 0; i < sortedIndices.size() - 1; i++)
+		if (BUILD_BINS * 2 < count)
 		{
-			float cost = getCostForSplit(triangles, sortedIndices, i);
-			if (cost < bestCost)
-				bestCost = cost;
+			float binSize = (getValue(bounds.max, axis) - getValue(bounds.min, axis)) / BUILD_BINS;
+			float min = getValue(bounds.min, axis);
+
+			for (unsigned int i = 0; i < BUILD_BINS; i++)
+			{
+				float pos = min + binSize * i;
+				float cost = getCostForSplit(triangles, indices, start, count, pos, axis);
+				if (cost < bestCost)
+				{
+					bestCost = cost;
+					splitPos = pos;
+				}
+			}
+		}
+		else
+		{
+			for (unsigned int i = start; i < start + count; i++)
+			{
+				float pos = getValue(triangles[indices[i]].centre(), axis);
+				float cost = getCostForSplit(triangles, indices, start, count, pos, axis);
+				if (cost < bestCost)
+				{
+					bestCost = cost;
+					splitPos = pos;
+				}
+			}
 		}
 
 		return bestCost;
 	}
 
-	float getCostForSplit(const std::vector<Triangle>& triangles, std::vector<unsigned int>& sortedIndices, float split_pos)
+	float getValue(const Vec3& v, unsigned int axis)
 	{
-		AABB leftBox, rightBox;
+		switch (axis)
+		{
+		case 0:
+			return v.x;
+		case 1:
+			return v.y;
+		case 2:
+			return v.z;
+		default:
+			return 0.0f;
+		}
+	}
+
+	float getCostForSplit(const std::vector<Triangle>& triangles, std::vector<unsigned int>& indices, unsigned int start, unsigned int count, float split_pos, unsigned int axis)
+	{
+		AABB leftBox{}, rightBox{};
 		unsigned int leftCount = 0, rightCount = 0;
 
-		for (unsigned int i = 0; i <= split_pos; i++)
+		for (unsigned int i = start; i < start + count; i++)
 		{
-			for (unsigned int j = 0; j < 3; j++)
-				leftBox.extend(triangles[sortedIndices[i]].vertices[j].p);
+			if (getValue(triangles[indices[i]].centre(), axis) <= split_pos)
+			{
+				leftBox.extend(triangles[indices[i]].centre());
+				leftCount++;
+			}
+			else
+			{
+				rightBox.extend(triangles[indices[i]].centre());
+				rightCount++;
+			}
 		}
 
-		for (unsigned int i = split_pos + 1; i < sortedIndices.size(); i++)
-		{
-			for (unsigned int j = 0; j < 3; j++)
-				rightBox.extend(triangles[sortedIndices[i]].vertices[j].p);
-		}
+		if (leftCount == 0 || rightCount == 0)
+			return FLT_MAX;
 
 		return leftCount * leftBox.area() + rightCount * rightBox.area();
 	}
 
 	// Note there are several options for how to implement the build method. Update this as required
-	void build(const std::vector<Triangle>& triangles, const std::vector<unsigned int>& indices)
+	void build(const std::vector<Triangle>& triangles, std::vector<unsigned int>& indices, unsigned int start, unsigned int count, unsigned int depth = 0)
 	{
 		// Add BVH building code here
-		for (unsigned int i = 0; i < indices.size(); i++)
+		for (unsigned int i = start; i < start + count; i++)
 		{
 			for (unsigned int j = 0; j < 3; j++)
 				bounds.extend(triangles[indices[i]].vertices[j].p);
 		}
 
-		std::vector<std::vector<unsigned int>> sortedIndices;
-		sortTriangles(triangles, indices, sortedIndices);
-		unsigned int splitIndex, axis;
-		if (!getSplit(triangles, sortedIndices, splitIndex, axis))
+		unsigned int axis;
+		float splitPos;
+
+		offset = start;
+		num = count;
+
+		if (getSplit(triangles, indices, start, count, splitPos, axis))
 		{
-			this->triangles.resize(indices.size());
-			std::copy(indices.begin(), indices.end(), this->triangles.begin());
-		}
-		else
-		{
+			auto midIterator = std::partition(indices.begin() + start, indices.begin() + start + count, [&](const unsigned int t) { return getValue(triangles[t].centre(), axis) <= splitPos; });
+			unsigned int mid = midIterator - indices.begin();
+
+			if (mid == start || mid == start + count)
+			{
+				return;
+			}
+
 			l = new BVHNode();
-			std::vector<unsigned int> nextIndices;
-			nextIndices.resize(splitIndex + 1);
-			std::copy(sortedIndices[axis].begin(), sortedIndices[axis].begin() + splitIndex + 1, nextIndices.begin());
-			l->build(triangles, nextIndices);
+			if (depth <= 5)
+			{
+				std::cout << "Depth: " << depth << ", start: " << start << ", mid: " << mid << ", end : " << start + count << std::endl;
+			}
+
+			l->build(triangles, indices, start, mid - start, depth + 1);
 
 			r = new BVHNode();
-			nextIndices.resize(indices.size() - splitIndex - 1);
-			std::copy(sortedIndices[axis].begin() + splitIndex + 1, sortedIndices[axis].end(), nextIndices.begin());
-			r->build(triangles, nextIndices);
+			r->build(triangles, indices, mid, start + count - mid, depth + 1);
 		}
 	}
 
+	void print(unsigned int depth, std::vector<unsigned int>& indices)
+	{
+		if (l != nullptr)
+		{
+			l->print(depth + 1, indices);
+			r->print(depth + 1, indices);
+		}
+		else
+		{
+			std::cout << std::string(depth, '-') << "[";
+			for (int i = offset; i < offset + num; i++)
+			{
+				std::cout << indices[i] << ", ";
+			}
+			std::cout << "]" << std::endl;
+		}
+	}
+
+	void stats(unsigned int& leafCount, unsigned int& nodeCount)
+	{
+		if (l == nullptr)
+		{
+			leafCount++;
+			nodeCount++;
+		}
+		else
+		{
+			nodeCount++;
+			l->stats(leafCount, nodeCount);
+			r->stats(leafCount, nodeCount);
+		}
+	}
+
+	std::vector<unsigned int> indices;
 public:
 	AABB bounds;
 	BVHNode* r;
 	BVHNode* l;
 	// This can store an offset and number of triangles in a global triangle list for example
 	// But you can store this however you want!
-	// unsigned int offset;
-	// unsigned char num;
-	std::vector<unsigned int> triangles;
+	unsigned int offset = 0;
+	unsigned int num = 0;
 
 	BVHNode()
 	{
@@ -437,13 +508,24 @@ public:
 
 	void buildRoot(const std::vector<Triangle>& triangles)
 	{
-		std::vector<unsigned int> indices;
 		indices.resize(triangles.size());
-		std::iota(indices.begin(), indices.end(), 0);
-		build(triangles, indices);
+		for (int i = 0; i < triangles.size(); i++)
+		{
+			indices[i] = i;
+		}
+		build(triangles, indices, 0, triangles.size());
+		unsigned int nodecount = 0, leafcount = 0;
+		stats(leafcount, nodecount);
+		std::cout << nodecount << " nodes, " << leafcount << " leaves." << std::endl;
+		std::cout << (float)nodecount / triangles.size() << " nodes per tri, " << (float)leafcount / triangles.size() << " leaves per tri" << std::endl;
 	}
 
-	void traverse(const Ray& ray, const std::vector<Triangle>& triangles, IntersectionData& intersection)
+	void print()
+	{
+		print(0, indices);
+	}
+
+	void traverse(const Ray& ray, IntersectionData& intersection, const std::vector<Triangle>& triangles)
 	{
 		// Add BVH Traversal code here
 		std::stack<BVHNode*> nodeStack;
@@ -452,19 +534,19 @@ public:
 		while (!nodeStack.empty())
 		{
 			BVHNode* node = nodeStack.top();
+			nodeStack.pop();
 
 			if (!node->bounds.rayAABB(ray))
 			{
-				nodeStack.pop();
 				continue;
 			}
 
 			if (node->l == nullptr)
 			{
-				for (unsigned int index : node->triangles)
+				for (int i = node->offset; i < node->offset + node->num; i++)
 				{
 					float t, alpha, beta;
-					if (triangles[index].rayIntersect(ray, t, alpha, beta))
+					if (triangles[indices[i]].rayIntersect(ray, t, alpha, beta))
 					{
 						if (t < intersection.t)
 						{
@@ -472,26 +554,26 @@ public:
 							intersection.alpha = alpha;
 							intersection.beta = beta;
 							intersection.gamma = 1 - alpha - beta;
-							intersection.ID = index;
+							intersection.ID = indices[i];
 						}
 					}
 				}
-				return;
 			}
-
-			nodeStack.pop();
-			nodeStack.push(node->l);
-			nodeStack.push(node->r);
+			else
+			{
+				nodeStack.push(node->l);
+				nodeStack.push(node->r);
+			}
 		}
 	}
 	IntersectionData traverse(const Ray& ray, const std::vector<Triangle>& triangles)
 	{
 		IntersectionData intersection;
 		intersection.t = FLT_MAX;
-		traverse(ray, triangles, intersection);
+		traverse(ray, intersection, triangles);
 		return intersection;
 	}
-	bool traverseVisible(const Ray& ray, const std::vector<Triangle>& triangles, const float maxT)
+	bool traverseVisible(const Ray& ray, const float maxT, const std::vector<Triangle>& triangles)
 	{
 		// Add visibility code here
 		std::stack<BVHNode*> nodeStack;
@@ -509,10 +591,10 @@ public:
 
 			if (node->l == nullptr)
 			{
-				for (unsigned int index : node->triangles)
+				for (int i = node->offset; i < node->offset + node->num; i++)
 				{
 					float t, alpha, beta;
-					if (triangles[index].rayIntersect(ray, t, alpha, beta))
+					if (triangles[indices[i]].rayIntersect(ray, t, alpha, beta))
 					{
 						return false;
 					}

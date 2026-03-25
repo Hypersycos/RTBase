@@ -278,35 +278,23 @@ public:
 		}
 	}
 
-	void tonemapLinearWithExposure(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	float tonemapLinearWithExposure(Colour& c, float L_in, float exposure = 1.0f)
 	{
-		Colour& c = operator()(x, y);
-		float L_in = c.Lum();
-
-		float scalar = L_in * std::powf(2, exposure);
-		scalar = std::powf(scalar, 1.0f / 2.2f);
-		scalar = std::min<float>(scalar * 255, 255);
-
-		r = std::round(scalar * c.r);
-		g = std::round(scalar * c.g);
-		b = std::round(scalar * c.b);
+		float L_out = L_in * std::powf(2, exposure);
+		L_out = std::powf(L_out, 1.0f / 2.2f);
+		
+		return L_out;
 	}
 
-	void tonemapReinhard(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	float tonemapReinhard(Colour& c, float L_in, float exposure = 1.0f)
 	{
-		Colour& c = operator()(x, y);
-		float L_in = c.Lum();
+		float L_out = L_in / (1 + L_in);
+		L_out = std::powf(L_out, 1.0f / 2.2f);
 
-		float scalar = L_in / (1 + L_in);
-		scalar = std::powf(scalar, 1.0f / 2.2f);
-		scalar = std::min<float>(scalar * 255, 255);
-
-		r = std::round(scalar * c.r);
-		g = std::round(scalar * c.g);
-		b = std::round(scalar * c.b);
+		return L_out;
 	}
 
-	void tonemapFilmic(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	float tonemapFilmic(Colour& c, float L_in, float exposure = 1.0f)
 	{
 		static auto C = [](float x, float A, float B, float C, float D, float E, float F)
 			{
@@ -317,46 +305,39 @@ public:
 				return C(x, 0.15f, 0.5f, 0.1f, 0.2f, 0.02f, 0.3f);
 			};
 
-		Colour& c = operator()(x, y);
-		float L_in = c.Lum();
-
 		float L_out = C2(L_in) / C2(11.2);
 		L_out = std::powf(L_out, 1.0f / 2.2f);
-		float scalar = L_out / L_in;
-		scalar = std::min<float>(scalar * 255, 255);
 
-		float L_disp = std::min(L_out, 1.0f);
-		float scalar2 = L_disp / L_in;
-		float maxClamp = std::min({ 1 / c.r, 1 / c.g, 1 / c.b });
-		scalar2 = std::min(scalar2, maxClamp) * 255;
-
-		r = std::round(scalar2 * c.r);
-		g = std::round(scalar2 * c.g);
-		b = std::round(scalar2 * c.b);
-
-/*		float L_out = C2(L_in) / C2(11.2);
-		float scalar = L_out / L_in;
-		scalar = std::powf(scalar, 1.0f / 2.2f);
-		scalar = std::clamp<float>(scalar * 255, 0, 255);
-
-		r = std::round(scalar * c.r);
-		g = std::round(scalar * c.g);
-		b = std::round(scalar * c.b);*/
+		return L_out;
 	}
 
-	void tonemapPassthrough(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
+	float tonemapPassthrough(Colour& c, float L_in, float exposure = 1.0f)
+	{
+		return 1;
+	}
+
+//#define PrefLuminance
+	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
 		Colour& c = operator()(x, y);
-		float scalar = 255;
+		float L_in = c.Lum();
+		float L_out = tonemapFilmic(c, L_in, exposure);
+
+#ifdef PrefLuminance
+		L_out = std::min<float>(L_out, 1);
+		float scalar = L_out / L_in * 255;
+
+		r = std::round(std::min<float>(255, scalar * c.r));
+		g = std::round(std::min<float>(255, scalar * c.g));
+		b = std::round(std::min<float>(255, scalar * c.b));
+#else
+		float maxClamp = std::min({ 1 / c.r, 1 / c.g, 1 / c.b });
+		float scalar = std::min(L_out / L_in, maxClamp) * 255;
 
 		r = std::round(scalar * c.r);
 		g = std::round(scalar * c.g);
 		b = std::round(scalar * c.b);
-	}
-
-	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
-	{
-		tonemapFilmic(x, y, r, g, b, exposure);
+#endif
 	}
 
 	// Do not change any code below this line
