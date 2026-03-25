@@ -321,7 +321,7 @@ public:
 	{
 		Colour& c = operator()(x, y);
 		float L_in = c.Lum();
-		float L_out = tonemapFilmic(c, L_in, exposure);
+		float L_out = tonemapLinearWithExposure(c, L_in, exposure);
 
 #ifdef PrefLuminance
 		L_out = std::min<float>(L_out, 1);

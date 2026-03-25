@@ -307,6 +307,7 @@ struct IntersectionData
 };
 
 #define MAXNODE_TRIANGLES 8
+#define PREFNODE_TRIANGLES 4
 #define TRAVERSE_COST 1.0f
 #define TRIANGLE_COST 2.0f
 #define BUILD_BINS 10
@@ -430,7 +431,7 @@ private:
 		offset = start;
 		num = count;
 
-		if (getSplit(triangles, indices, start, count, splitPos, axis))
+		if (PREFNODE_TRIANGLES > 1 && num > PREFNODE_TRIANGLES && getSplit(triangles, indices, start, count, splitPos, axis))
 		{
 			auto midIterator = std::partition(indices.begin() + start, indices.begin() + start + count, [&](const unsigned int t) { return getValue(triangles[t].centre(), axis) <= splitPos; });
 			unsigned int mid = midIterator - indices.begin();
@@ -540,7 +541,7 @@ public:
 			BVHNode* node = nodeStack.top();
 			nodeStack.pop();
 
-			if (!node->bounds.rayAABB(ray))
+			if (num > 1 && !node->bounds.rayAABB(ray))
 			{
 				continue;
 			}
@@ -579,6 +580,7 @@ public:
 	}
 	bool traverseVisible(const Ray& ray, const float maxT, const std::vector<Triangle>& triangles)
 	{
+		return traverse(ray, triangles).t > maxT;
 		// Add visibility code here
 		std::stack<BVHNode*> nodeStack;
 		nodeStack.push(this);
@@ -598,7 +600,7 @@ public:
 				for (int i = node->offset; i < node->offset + node->num; i++)
 				{
 					float t, alpha, beta;
-					if (triangles[indices[i]].rayIntersect(ray, t, alpha, beta))
+					if (triangles[indices[i]].rayIntersect(ray, t, alpha, beta) && t <= maxT)
 					{
 						return false;
 					}

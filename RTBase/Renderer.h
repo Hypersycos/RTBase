@@ -31,7 +31,7 @@ public:
 		scene = _scene;
 		canvas = _canvas;
 		film = new Film();
-		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new MitchellNetravaliFilter());
+		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new BoxFilter());
 		SYSTEM_INFO sysInfo;
 		GetSystemInfo(&sysInfo);
 		maxTiles = std::ceil(film->width / (float)tileSize) * std::ceil(film->height / (float)tileSize);
@@ -51,9 +51,43 @@ public:
 	Colour computeDirect(ShadingData shadingData, Sampler* sampler)
 	{
 		// Is surface is specular we cannot computing direct lighting
-		if (shadingData.bsdf->isPureSpecular() == true)
+		if (shadingData.bsdf->isPureSpecular() == false)
 		{
-			return Colour(0.0f, 0.0f, 0.0f);
+			float pmf;
+			Colour c = Colour{ 0,0,0 };
+			Light* light = scene->sampleLight(sampler, pmf);
+			if (light->isArea())
+			{
+				float pdf;
+				Colour emittedColour;
+
+				Vec3 lightPoint = light->sample(shadingData, sampler, emittedColour, pdf);
+				Vec3 surfaceToLight = lightPoint - shadingData.x;
+				Vec3 wi = surfaceToLight.normalize();
+
+				float cosTheta = wi.dot(shadingData.sNormal);
+				if (cosTheta > 0)
+				{
+					float cosThetaPrime = -(wi.dot(light->normal(shadingData, wi)));
+					if (cosThetaPrime > 0)
+					{
+						if (scene->visible(shadingData.x, lightPoint))
+						{
+							float geoTerm = cosTheta * cosThetaPrime / (surfaceToLight.lengthSq());
+							Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
+							c = c + emittedColour * bsdfColour * geoTerm / (pdf * pmf);
+						}
+					}
+				}
+			}
+			else
+			{
+				//light->sampleDirectionFromLight(sampler, pdf);
+				//geometry term
+				//visibility
+				//bsdf
+			}
+			return c / 8;
 		}
 		// Compute direct lighting here
 		return Colour(0.0f, 0.0f, 0.0f);
@@ -65,8 +99,17 @@ public:
 	}
 	Colour direct(Ray& r, Sampler* sampler)
 	{
-		// Compute direct lighting for an image sampler here
-		return Colour(0.0f, 0.0f, 0.0f);
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+		if (shadingData.t < FLT_MAX)
+		{
+			if (shadingData.bsdf->isLight())
+			{
+				return shadingData.bsdf->emit(shadingData, shadingData.wo);
+			}
+			return computeDirect(shadingData, sampler);
+		}
+		return scene->background->evaluate(r.dir);
 	}
 	Colour albedo(Ray& r)
 	{
@@ -116,7 +159,8 @@ public:
 		float px = x + 0.5f;
 		float py = y + 0.5f;
 		Ray ray = scene->camera.generateRay(px, py);
-		Colour col = fakeShading(ray, 0.2, 0.003);
+		//Colour col = fakeShading(ray, 0.2, 0.003);
+		Colour col = direct(ray, samplers);
 		film->splat(px, py, col);
 	}
 
