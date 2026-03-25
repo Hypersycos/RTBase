@@ -186,7 +186,12 @@ public:
 	// Add code here
 	Vec3 sample(Sampler* sampler, float& pdf)
 	{
-		return Vec3(0, 0, 0);
+		float r1 = sampler->next();
+		float alpha = 1 - std::sqrt(r1);
+		float beta = sampler->next() * std::sqrt(r1);
+
+		pdf = 1 / area;
+		return vertices[0].p * alpha + vertices[1].p * beta + vertices[2].p * (1 - alpha - beta);
 	}
 	Vec3 gNormal()
 	{

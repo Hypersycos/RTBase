@@ -8,6 +8,7 @@
 #include "Lights.h"
 #include "Scene.h"
 #include "GamesEngineeringBase.h"
+#include "ThreadHelper.h"
 #include <thread>
 #include <functional>
 #include <mutex>
@@ -19,8 +20,8 @@ public:
 	GamesEngineeringBase::Window* canvas;
 	Film* film;
 	MTRandom *samplers;
-	std::thread **threads;
-	int numProcs;
+	std::vector<TaskThread*> threads;
+	unsigned int numProcs;
 	std::atomic<int> tileCount = 0;
 	unsigned int tileSize = 16;
 	unsigned int maxTiles;
@@ -35,7 +36,11 @@ public:
 		GetSystemInfo(&sysInfo);
 		maxTiles = std::ceil(film->width / (float)tileSize) * std::ceil(film->height / (float)tileSize);
 		numProcs = sysInfo.dwNumberOfProcessors;
-		threads = new std::thread*[numProcs];
+		threads.resize(numProcs);
+		for (int i = 0; i < numProcs; i++)
+		{
+			threads[i] = new TaskThread();
+		}
 		samplers = new MTRandom[numProcs];
 		clear();
 	}
@@ -131,23 +136,24 @@ public:
 	{
 		tileCount = 0;
 
-		auto renderThread = [&]()
+		auto renderThread = [&](std::stop_token stop)
 			{
 				unsigned int myTile;
-				while ((myTile = tileCount++) < maxTiles)
+				while ((myTile = tileCount++) < maxTiles && !stop.stop_requested())
 				{
 					renderTile(myTile);
 				}
 			};
 
+		std::vector<unsigned int> taskIDs;
+		taskIDs.resize(numProcs);
 		for (int i = 0; i < numProcs; i++)
 		{
-			threads[i] = new std::thread{ renderThread };
+			taskIDs[i] = threads[i]->QueueTask(renderThread);
 		}
 		for (int i = 0; i < numProcs; i++)
 		{
-			threads[i]->join();
-			delete threads[i];
+			threads[i]->Join(taskIDs[i]);
 		}
 	}
 
