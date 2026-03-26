@@ -13,6 +13,10 @@
 #include <functional>
 #include <mutex>
 
+#if defined(NDEBUG)
+#define SAMPLESPP 16
+#endif
+
 class RayTracer
 {
 public:
@@ -54,11 +58,10 @@ public:
 		if (shadingData.bsdf->isPureSpecular() == false)
 		{
 			float pmf;
-			Colour c = Colour{ 0,0,0 };
 			Light* light = scene->sampleLight(sampler, pmf);
+			float pdf;
 			if (light->isArea())
 			{
-				float pdf;
 				Colour emittedColour;
 
 				Vec3 lightPoint = light->sample(shadingData, sampler, emittedColour, pdf);
@@ -75,19 +78,30 @@ public:
 						{
 							float geoTerm = cosTheta * cosThetaPrime / (surfaceToLight.lengthSq());
 							Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
-							c = c + emittedColour * bsdfColour * geoTerm / (pdf * pmf);
+							return emittedColour * bsdfColour * geoTerm / (pdf * pmf);
 						}
 					}
 				}
 			}
 			else
 			{
-				//light->sampleDirectionFromLight(sampler, pdf);
-				//geometry term
-				//visibility
-				//bsdf
+				Vec3 wi = light->sampleDirectionFromLight(sampler, pdf);
+
+				float cosTheta = wi.dot(shadingData.sNormal);
+				if (cosTheta > 0)
+				{
+					float t;
+					Ray lightRay = Ray(shadingData.x, wi);
+					scene->bounds.rayAABB(lightRay, t);
+					Vec3 oobPoint = lightRay.at(t + 1);
+					if (scene->visible(shadingData.x, oobPoint))
+					{
+						float geoTerm = cosTheta;
+						Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
+						return light->evaluate(wi) * bsdfColour * geoTerm / (pdf * pmf);
+					}
+				}
 			}
-			return c / 8;
 		}
 		// Compute direct lighting here
 		return Colour(0.0f, 0.0f, 0.0f);
@@ -107,7 +121,14 @@ public:
 			{
 				return shadingData.bsdf->emit(shadingData, shadingData.wo);
 			}
+#if defined(SAMPLESPP) && SAMPLESPP > 1
+			Colour c;
+			for (int i = 0; i < SAMPLESPP; i++)
+				c = c + computeDirect(shadingData, sampler);
+			return c / SAMPLESPP;
+#else
 			return computeDirect(shadingData, sampler);
+#endif
 		}
 		return scene->background->evaluate(r.dir);
 	}
@@ -166,7 +187,6 @@ public:
 
 	void renderST()
 	{
-		film->incrementSPP();
 		for (unsigned int y = 0; y < film->height; y++)
 		{
 			for (unsigned int x = 0; x < film->width; x++)
@@ -203,7 +223,15 @@ public:
 
 	void render()
 	{
+#ifndef ADDITIVESAMPLES
+		clear();
+#endif
+		film->incrementSPP();
+#ifdef NDEBUG
 		renderMT();
+#else
+		renderST();
+#endif
 		for (unsigned int y = 0; y < film->height; y++)
 		{
 			for (unsigned int x = 0; x < film->width; x++)
@@ -225,7 +253,6 @@ public:
 		unsigned int xend = std::min(xstart + tileSize, film->width);
 		unsigned int yend = std::min(ystart + tileSize, film->height);
 
-		film->incrementSPP();
 		for (unsigned int y = ystart; y < yend; y++)
 		{
 			for (unsigned int x = xstart; x < xend; x++)

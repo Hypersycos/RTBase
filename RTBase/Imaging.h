@@ -7,6 +7,8 @@
 #define __STDC_LIB_EXT1__
 #include "stb_image_write.h"
 
+#define ADDITIVESAMPLES
+
 // Stop warnings about buffer overruns if size is zero. Size should never be zero and if it is the code handles it.
 #pragma warning( disable : 6386)
 
@@ -316,16 +318,28 @@ public:
 		return 1;
 	}
 
-//#define PrefLuminance
+
+#define PrefLuminance
 	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
 		Colour& c = operator()(x, y);
+#ifdef ADDITIVESAMPLES
+		float L_in = c.Lum() / SPP;
+#else
 		float L_in = c.Lum();
-		float L_out = tonemapLinearWithExposure(c, L_in, exposure);
+#endif
+		float L_out = tonemapFilmic(c, L_in, exposure);
+
+#ifdef ADDITIVESAMPLES
+		L_out /= SPP;
+#endif
 
 #ifdef PrefLuminance
+#ifdef ClampLuminance
 		L_out = std::min<float>(L_out, 1);
-		float scalar = L_out / L_in * 255;
+#endif
+		float scalar = L_in == 0 ? 0 : L_out / L_in * 255;
+
 
 		r = std::round(std::min<float>(255, scalar * c.r));
 		g = std::round(std::min<float>(255, scalar * c.g));

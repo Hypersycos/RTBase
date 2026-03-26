@@ -80,6 +80,7 @@ public:
 	std::vector<BSDF*> materials;
 	std::vector<Light*> lights;
 	Light* background = NULL;
+	float lightPMF = 0;
 	BVHNode* bvh = NULL;
 	Camera camera;
 	AABB bounds;
@@ -99,6 +100,8 @@ public:
 				light->triangle = &triangles[i];
 				light->emission = materials[triangles[i].materialIndex]->emission;
 				lights.push_back(light);
+
+				lightPMF += light->totalIntegratedPower();
 			}
 		}
 	}
@@ -126,10 +129,33 @@ public:
 		return intersection;*/
 		return bvh->traverse(ray, triangles);
 	}
+
+	Light* sampleLightUniform(Sampler* sampler, float& pmf)
+	{
+		static float PMF = 1.0f / lights.size();
+		pmf = PMF;
+		return lights[std::min<unsigned int>(lights.size(), std::floor(sampler->next() * lights.size()))];
+	}
+
+	Light* sampleLightWeighted(Sampler* sampler, float& pmf)
+	{
+		//TODO: binary search tree?
+		if (lightPMF == 0)
+			return sampleLightUniform(sampler, pmf);
+
+		float target = sampler->next() * lightPMF - lights[0]->totalIntegratedPower();
+		unsigned int i = 0;
+		while (i < lights.size() - 1 && target > 0)
+		{
+			target -= lights[i++]->totalIntegratedPower();
+		}
+		pmf = lights[i]->totalIntegratedPower() / lightPMF;
+		return lights[i];
+	}
+
 	Light* sampleLight(Sampler* sampler, float& pmf)
 	{
-		pmf = 1.0f / lights.size();
-		return lights[std::min<unsigned int>(lights.size(), std::floor(sampler->next() * lights.size()))];
+		return sampleLightWeighted(sampler, pmf);
 	}
 	// Do not modify any code below this line
 	void init(std::vector<Triangle> meshTriangles, std::vector<BSDF*> meshMaterials, Light* _background)

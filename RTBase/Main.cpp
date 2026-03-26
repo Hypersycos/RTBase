@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 	// runTests()
 	
 	// Initialize default parameters
-	std::string sceneName = "scenes/kitchen";
+	std::string sceneName = "scenes/living-room";
 	//sceneName = "scenes/MaterialsScene";
 	std::string filename = "GI.hdr";
 	unsigned int SPP = 8192;
@@ -108,11 +108,18 @@ int main(int argc, char *argv[])
 		}
 		// Time how long a render call takes
 		timer.reset();
-		rt.clear();
 		rt.render();
 		float t = timer.dt();
 		// Write
+#ifdef ADDITIVESAMPLES
+#ifdef SAMPLESPP
+		std::cout << rt.film->SPP * SAMPLESPP << ": " << t << std::endl;
+#else
+		std::cout << rt.film->SPP << ": " << t << std::endl;
+#endif
+#else
 		std::cout << t << std::endl;
+#endif
 		if (canvas.keyPressed('P'))
 		{
 			rt.saveHDR(filename);

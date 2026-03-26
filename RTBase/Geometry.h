@@ -235,7 +235,7 @@ public:
 		float tEntry = std::max(TEntry.x, std::max(TEntry.y, TEntry.z));
 		float tExit = std::min(TExit.x, std::min(TExit.y, TExit.z));
 
-		t = std::min(tEntry, tExit);
+		t = tEntry < 0 ? tExit : std::min(tEntry, tExit);
 
 		return tEntry <= tExit && tExit > 0;
 	}
