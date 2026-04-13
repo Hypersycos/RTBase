@@ -7,7 +7,11 @@
 #define __STDC_LIB_EXT1__
 #include "stb_image_write.h"
 
-#define ADDITIVESAMPLES
+//#define ADDITIVESAMPLES
+
+#if defined(NDEBUG)
+#define SAMPLESPP 16
+#endif
 
 // Stop warnings about buffer overruns if size is zero. Size should never be zero and if it is the code handles it.
 #pragma warning( disable : 6386)
@@ -319,7 +323,8 @@ public:
 	}
 
 
-#define PrefLuminance
+//#define PrefLuminance
+//#define ClampLuminance
 	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
 		Colour& c = operator()(x, y);

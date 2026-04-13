@@ -13,10 +13,6 @@
 #include <functional>
 #include <mutex>
 
-#if defined(NDEBUG)
-#define SAMPLESPP 16
-#endif
-
 class RayTracer
 {
 public:
