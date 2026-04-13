@@ -62,6 +62,13 @@ public:
 		c.b = b * colour.b;
 		return c;
 	}
+	Colour& operator*=(const Colour& colour)
+	{
+		r *= colour.r;
+		g *= colour.g;
+		b *= colour.b;
+		return *this;
+	}
 	Colour operator/(const Colour& colour) const
 	{
 		Colour c;

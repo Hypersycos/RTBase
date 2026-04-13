@@ -31,7 +31,7 @@ public:
 		scene = _scene;
 		canvas = _canvas;
 		film = new Film();
-		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new BoxFilter());
+		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new MitchellNetravaliFilter());
 		SYSTEM_INFO sysInfo;
 		GetSystemInfo(&sysInfo);
 		maxTiles = std::ceil(film->width / (float)tileSize) * std::ceil(film->height / (float)tileSize);
@@ -75,7 +75,7 @@ public:
 						{
 							float geoTerm = cosTheta * cosThetaPrime / (surfaceToLight.lengthSq());
 							Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
-							c = c + emittedColour * bsdfColour * geoTerm / (pdf * pmf);
+							c = emittedColour * bsdfColour * geoTerm / (pdf * pmf);
 						}
 					}
 				}
@@ -87,15 +87,55 @@ public:
 				//visibility
 				//bsdf
 			}
-			return c / 8;
+			return c;
 		}
 		// Compute direct lighting here
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
+
+	Colour pathTraceWrapper(Ray& r, Sampler* sampler)
+	{
+		Colour c;
+		for (int i = 0; i < 32; i++)
+		{
+			Colour pathThroughput = { 1,1,1 };
+			c = c + pathTrace(r, pathThroughput, 0, sampler);
+		}
+		return c / 32;
+	}
+
 	Colour pathTrace(Ray& r, Colour& pathThroughput, int depth, Sampler* sampler)
 	{
-		// Add pathtracer code here
-		return Colour(0.0f, 0.0f, 0.0f);
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+		if (shadingData.t < FLT_MAX)
+		{
+			if (shadingData.bsdf->isLight())
+			{
+				return depth == 0 ? shadingData.bsdf->emit(shadingData, shadingData.wo) : Colour{ 0,0,0 };
+			}
+			Colour direct = pathThroughput * computeDirect(shadingData, sampler);
+
+			Ray indirect;
+			Vec3 rayDir = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
+			rayDir = shadingData.frame.toWorld(rayDir);
+			indirect.init(shadingData.x + rayDir * EPSILON, rayDir);
+
+			float cosOverPdf = rayDir.dot(shadingData.sNormal) / SamplingDistributions::cosineHemispherePDF(rayDir);
+			pathThroughput *= shadingData.bsdf->evaluate(shadingData, rayDir) * cosOverPdf;
+
+			float q = std::min(pathThroughput.Lum(), 0.99f);
+			if (sampler->next() < q)
+			{
+				pathThroughput = pathThroughput / q;
+				return direct + pathTrace(indirect, pathThroughput, depth + 1, sampler);
+			}
+			else
+			{
+				return direct + Colour{ 0,0,0 };
+			}
+		}
+		return scene->background->evaluate(r.dir);
 	}
 	Colour direct(Ray& r, Sampler* sampler)
 	{
@@ -154,13 +194,13 @@ public:
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
 
-	void renderPixel(unsigned int x, unsigned int y)
+	void renderPixel(unsigned int x, unsigned int y, Sampler* sampler)
 	{
 		float px = x + 0.5f;
 		float py = y + 0.5f;
 		Ray ray = scene->camera.generateRay(px, py);
 		//Colour col = fakeShading(ray, 0.2, 0.003);
-		Colour col = direct(ray, samplers);
+		Colour col = pathTraceWrapper(ray, sampler);
 		film->splat(px, py, col);
 	}
 
@@ -171,7 +211,7 @@ public:
 		{
 			for (unsigned int x = 0; x < film->width; x++)
 			{
-				renderPixel(x, y);
+				renderPixel(x, y, samplers);
 			}
 		}
 	}
@@ -180,19 +220,19 @@ public:
 	{
 		tileCount = 0;
 
-		auto renderThread = [&](std::stop_token stop)
-			{
-				unsigned int myTile;
-				while ((myTile = tileCount++) < maxTiles && !stop.stop_requested())
-				{
-					renderTile(myTile);
-				}
-			};
-
 		std::vector<unsigned int> taskIDs;
 		taskIDs.resize(numProcs);
 		for (int i = 0; i < numProcs; i++)
 		{
+			auto renderThread = [&](std::stop_token stop)
+				{
+					unsigned int myTile;
+					while ((myTile = tileCount++) < maxTiles && !stop.stop_requested())
+					{
+						renderTile(myTile, samplers);
+					}
+				};
+
 			taskIDs[i] = threads[i]->QueueTask(renderThread);
 		}
 		for (int i = 0; i < numProcs; i++)
@@ -216,7 +256,7 @@ public:
 		}
 	}
 
-	void renderTile(unsigned int index)
+	void renderTile(unsigned int index, Sampler* sampler)
 	{
 		unsigned int tilesPerRow = (film->width / tileSize);
 
@@ -230,7 +270,7 @@ public:
 		{
 			for (unsigned int x = xstart; x < xend; x++)
 			{
-				renderPixel(x, y);
+				renderPixel(x, y, sampler);
 			}
 		}
 	}

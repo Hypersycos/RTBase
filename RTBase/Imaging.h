@@ -320,6 +320,13 @@ public:
 	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
 		Colour& c = operator()(x, y);
+
+		r = std::min(powf(c.r, 1.0f / 2.2f), 1.0f) * 255;
+		g = std::min(powf(c.g, 1.0f / 2.2f), 1.0f) * 255;
+		b = std::min(powf(c.b, 1.0f / 2.2f), 1.0f) * 255;
+		return;
+
+
 		float L_in = c.Lum();
 		float L_out = tonemapLinearWithExposure(c, L_in, exposure);
 
