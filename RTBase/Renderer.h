@@ -42,6 +42,10 @@ public:
 			threads[i] = new TaskThread();
 		}
 		samplers = new MTRandom[numProcs];
+		for (unsigned int i = 0; i < numProcs; i++)
+		{
+			samplers[i] = MTRandom{ i + 1 };
+		}
 		clear();
 	}
 	void clear()
@@ -105,13 +109,8 @@ public:
 
 	Colour pathTraceWrapper(Ray& r, Sampler* sampler)
 	{
-		Colour c;
-		for (int i = 0; i < 32; i++)
-		{
-			Colour pathThroughput = { 1,1,1 };
-			c = c + pathTrace(r, pathThroughput, 0, sampler);
-		}
-		return c / 32;
+		Colour pathThroughput = { 1,1,1 };
+		return pathTrace(r, pathThroughput, 0, sampler);
 	}
 
 	Colour pathTrace(Ray& r, Colour& pathThroughput, int depth, Sampler* sampler)
@@ -128,10 +127,12 @@ public:
 
 			Ray indirect;
 			Vec3 rayDir = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
+			float rayPdf = SamplingDistributions::cosineHemispherePDF(rayDir);
 			rayDir = shadingData.frame.toWorld(rayDir);
 			indirect.init(shadingData.x + rayDir * EPSILON, rayDir);
 
-			float cosOverPdf = rayDir.dot(shadingData.sNormal) / SamplingDistributions::cosineHemispherePDF(rayDir);
+			float cosOverPdf = rayDir.dot(shadingData.sNormal) / rayPdf;
+
 			pathThroughput *= shadingData.bsdf->evaluate(shadingData, rayDir) * cosOverPdf;
 
 			float q = std::min(pathThroughput.Lum(), 0.99f);
@@ -145,7 +146,8 @@ public:
 				return direct + Colour{ 0,0,0 };
 			}
 		}
-		return scene->background->evaluate(r.dir);
+
+		return scene->background->evaluate(r.dir) * pathThroughput;
 	}
 	Colour direct(Ray& r, Sampler* sampler)
 	{
@@ -157,14 +159,7 @@ public:
 			{
 				return shadingData.bsdf->emit(shadingData, shadingData.wo);
 			}
-#if defined(SAMPLESPP) && SAMPLESPP > 1
-			Colour c;
-			for (int i = 0; i < SAMPLESPP; i++)
-				c = c + computeDirect(shadingData, sampler);
-			return c / SAMPLESPP;
-#else
 			return computeDirect(shadingData, sampler);
-#endif
 		}
 		return scene->background->evaluate(r.dir);
 	}
@@ -216,8 +211,13 @@ public:
 		float px = x + 0.5f;
 		float py = y + 0.5f;
 		Ray ray = scene->camera.generateRay(px, py);
-		//Colour col = fakeShading(ray, 0.2, 0.003);
-		Colour col = pathTraceWrapper(ray, sampler);
+		//Colour col = viewNormals(ray);
+		Colour col{};
+		for (int i = 0; i < SAMPLESPP; i++)
+		{
+			col = col + pathTraceWrapper(ray, sampler);
+		}
+		col = col / SAMPLESPP;
 		film->splat(px, py, col);
 	}
 
@@ -236,16 +236,16 @@ public:
 	{
 		tileCount = 0;
 
-		std::vector<unsigned int> taskIDs;
+		static std::vector<unsigned int> taskIDs;
 		taskIDs.resize(numProcs);
 		for (int i = 0; i < numProcs; i++)
 		{
-			auto renderThread = [&](std::stop_token stop)
+			auto renderThread = [&,i](std::stop_token stop)
 				{
 					unsigned int myTile;
 					while ((myTile = tileCount++) < maxTiles && !stop.stop_requested())
 					{
-						renderTile(myTile, samplers);
+						renderTile(myTile, &(samplers[i]));
 					}
 				};
 
@@ -262,11 +262,11 @@ public:
 #ifndef ADDITIVESAMPLES
 		clear();
 #endif
-		film->incrementSPP();
+		film->SPP++;
 #ifdef NDEBUG
 		renderMT();
 #else
-		renderST();
+		renderMT();
 #endif
 		for (unsigned int y = 0; y < film->height; y++)
 		{

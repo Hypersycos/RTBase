@@ -93,7 +93,11 @@ public:
 		c.b = b / v;
 		return c;
 	}
-	float Lum()
+	friend std::ostream& operator<<(std::ostream& stream, const Colour c)
+	{
+		return stream << "R:" << c.r << ", G:" << c.g << ", B:" << c.b;
+	}
+	float Lum() const
 	{
 		return ((0.2126f * r) + (0.7152f * g) + (0.0722f * b));
 	}
@@ -177,6 +181,10 @@ public:
 	Vec3 cross(Vec3 v) const
 	{
 		return Vec3((y * v.z) - (z * v.y), (z * v.x) - (x * v.z), (x * v.y) - (y * v.x));
+	}
+	friend std::ostream& operator<<(std::ostream& stream, const Vec3 c)
+	{
+		return stream << "X:" << c.x << ", Y:" << c.y << ", Z:" << c.z;
 	}
 };
 

@@ -7,10 +7,12 @@
 #define __STDC_LIB_EXT1__
 #include "stb_image_write.h"
 
-//#define ADDITIVESAMPLES
+#define ADDITIVESAMPLES
 
 #if defined(NDEBUG)
-#define SAMPLESPP 16
+#define SAMPLESPP 4
+#else
+#define SAMPLESPP 1
 #endif
 
 // Stop warnings about buffer overruns if size is zero. Size should never be zero and if it is the code handles it.
@@ -282,21 +284,22 @@ public:
 		{
 			film[indices[i]] = film[indices[i]] + (L * filterWeights[i] / total);
 		}
+
+/*		if (std::isnan(L.r) || std::isinf(L.r) || L.Lum() < -1 || L.Lum() > 2)
+		{
+			std::cout << L.Lum() << std::endl;
+		}*/
 	}
 
 	float tonemapLinearWithExposure(Colour& c, float L_in, float exposure = 1.0f)
 	{
 		float L_out = L_in * std::powf(2, exposure);
-		L_out = std::powf(L_out, 1.0f / 2.2f);
-		
 		return L_out;
 	}
 
 	float tonemapReinhard(Colour& c, float L_in, float exposure = 1.0f)
 	{
 		float L_out = L_in / (1 + L_in);
-		L_out = std::powf(L_out, 1.0f / 2.2f);
-
 		return L_out;
 	}
 
@@ -312,51 +315,32 @@ public:
 			};
 
 		float L_out = C2(L_in) / C2(11.2);
-		L_out = std::powf(L_out, 1.0f / 2.2f);
-
 		return L_out;
 	}
 
 	float tonemapPassthrough(Colour& c, float L_in, float exposure = 1.0f)
 	{
-		return 1;
+		return L_in;
 	}
 
 
-//#define PrefLuminance
-//#define ClampLuminance
 	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
-		Colour& c = operator()(x, y);
-#ifdef ADDITIVESAMPLES
-		float L_in = c.Lum() / SPP;
-#else
+		Colour& filmC = operator()(x, y);
+		Colour c = filmC / SPP;
+
 		float L_in = c.Lum();
-#endif
-		float L_out = tonemapFilmic(c, L_in, exposure);
+		float L_out = tonemapPassthrough(c, L_in, exposure);
 
-#ifdef ADDITIVESAMPLES
-		L_out /= SPP;
-#endif
+		float scalar = L_in == 0 ? 0 : L_out / L_in;
 
-#ifdef PrefLuminance
-#ifdef ClampLuminance
-		L_out = std::min<float>(L_out, 1);
-#endif
-		float scalar = L_in == 0 ? 0 : L_out / L_in * 255;
+		c.r = std::min(1.0f, powf(c.r * scalar, 1.0f / 2.2f));
+		c.g = std::min(1.0f, powf(c.g * scalar, 1.0f / 2.2f));
+		c.b = std::min(1.0f, powf(c.b * scalar, 1.0f / 2.2f));
 
-
-		r = std::round(std::min<float>(255, scalar * c.r));
-		g = std::round(std::min<float>(255, scalar * c.g));
-		b = std::round(std::min<float>(255, scalar * c.b));
-#else
-		float maxClamp = std::min({ 1 / c.r, 1 / c.g, 1 / c.b });
-		float scalar = std::min(L_out / L_in, maxClamp) * 255;
-
-		r = std::round(scalar * c.r);
-		g = std::round(scalar * c.g);
-		b = std::round(scalar * c.b);
-#endif
+		r = std::round(c.r * 255);
+		g = std::round(c.g * 255);
+		b = std::round(c.b * 255);
 	}
 
 	// Do not change any code below this line
