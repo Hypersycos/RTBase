@@ -110,7 +110,8 @@ public:
 	Colour pathTraceWrapper(Ray& r, Sampler* sampler)
 	{
 		Colour pathThroughput = { 1,1,1 };
-		return pathTrace(r, pathThroughput, 0, sampler);
+		Colour result = pathTrace(r, pathThroughput, 0, sampler);
+		return result;
 	}
 
 	Colour pathTrace(Ray& r, Colour& pathThroughput, int depth, Sampler* sampler)
@@ -126,16 +127,19 @@ public:
 			Colour direct = pathThroughput * computeDirect(shadingData, sampler);
 
 			Ray indirect;
-			Vec3 rayDir = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
-			float rayPdf = SamplingDistributions::cosineHemispherePDF(rayDir);
-			rayDir = shadingData.frame.toWorld(rayDir);
+			Colour bsdfColour;
+			float rayPdf;
+			//Vec3 rayDir = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
+			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
+			//rayPdf = SamplingDistributions::cosineHemispherePDF(rayDir);
+			//rayDir = shadingData.frame.toWorld(rayDir);
 			indirect.init(shadingData.x + rayDir * EPSILON, rayDir);
 
 			float cosOverPdf = rayDir.dot(shadingData.sNormal) / rayPdf;
 
-			pathThroughput *= shadingData.bsdf->evaluate(shadingData, rayDir) * cosOverPdf;
+			pathThroughput *= bsdfColour * cosOverPdf;
 
-			float q = std::min(pathThroughput.Lum(), 0.99f);
+			float q = depth > 4 ? std::min(pathThroughput.Lum(), 0.9f) : 1.0f;
 			if (sampler->next() < q)
 			{
 				pathThroughput = pathThroughput / q;
@@ -266,7 +270,7 @@ public:
 #ifdef NDEBUG
 		renderMT();
 #else
-		renderMT();
+		renderST();
 #endif
 		for (unsigned int y = 0; y < film->height; y++)
 		{
