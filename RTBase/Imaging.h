@@ -10,7 +10,8 @@
 #define ADDITIVESAMPLES
 
 #if defined(NDEBUG)
-#define SAMPLESPP 2
+#define SAMPLESPP 1
+#define USETHREADS
 #else
 #define SAMPLESPP 1
 #endif

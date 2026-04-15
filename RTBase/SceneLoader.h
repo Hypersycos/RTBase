@@ -11,9 +11,14 @@ public:
 	Vec3 from;
 	Vec3 to;
 	Vec3 up;
+
+	Vec3 pos;
+	float yaw;
+	float pitch;
+
 	Camera* camera = NULL;
-	float movespeed = 1.0f;
-	float rotspeed = 5.0f;
+	float movespeed = 0.2f;
+	float rotspeed = 15.0f;
 	RTCamera()
 	{
 		rotspeed = 5.0f;
@@ -23,7 +28,7 @@ public:
 		Vec3 dir = to - from;
 		dir = dir.normalize() * movespeed;
 		from = from + dir;
-		to = from + dir;
+		to = to + dir;
 		updateCamera();
 	}
 	void back()
@@ -31,40 +36,79 @@ public:
 		Vec3 dir = to - from;
 		dir = dir.normalize() * movespeed;
 		from = from - dir;
-		to = from + dir;
+		to = to + dir;
 		updateCamera();
 	}
 	void left()
+	{
+		Vec3 dir = -Cross(to - from, up);
+		dir = dir.normalize() * movespeed;
+		from = from + dir;
+		to = to + dir;
+		updateCamera();
+	}
+	void right()
+	{
+		Vec3 dir = Cross(to - from, up);
+		dir = dir.normalize() * movespeed;
+		from = from + dir;
+		to = to + dir;
+		updateCamera();
+	}
+
+	Vec3 getTo()
+	{
+		return from + Vec3(-sinf(yaw) * cosf(pitch), sin(pitch), -cos(yaw) * cos(pitch));
+	}
+
+	Vec3 rotate(Vec3 v)
+	{
+		return Vec3{ v.x * cosf(yaw) + v.z * sinf(yaw),
+					v.y * cosf(pitch) + (v.z * cosf(yaw) - v.x * sinf(yaw)) * sinf(pitch),
+					(v.z * cosf(yaw) - v.x * sinf(yaw)) * cosf(pitch) - v.y * sinf(pitch) };
+	}
+
+	void rotLeft()
 	{
 		Vec3 dir = to - from;
 		dir = dir.normalize();
 
 		float rad = rotspeed * (M_PI / 180.0f);
-		float cosTheta = cosf(rad);
-		float sinTheta = sinf(rad);
-		Vec3 k = up;
-		Vec3 rotated = (dir * cosTheta) + (k.cross(dir) * sinTheta) + (k * (k.dot(dir) * (1 - cosTheta)));
-		dir.x = rotated.x;
-		dir.y = rotated.y;
-		dir.z = rotated.z;
-		to = from + dir;
+		yaw += rad;
+		to = getTo();
 		updateCamera();
 	}
-	void right()
+	void rotRight()
 	{
 		Vec3 dir = to - from;
 		dir = dir.normalize();
-		float rad = -rotspeed * (M_PI / 180.0f);
-		float cosTheta = cosf(rad);
-		float sinTheta = sinf(rad);
-		Vec3 k = up;
-		Vec3 rotated = (dir * cosTheta) + (k.cross(dir) * sinTheta) + (k * (k.dot(dir) * (1 - cosTheta)));
-		dir.x = rotated.x;
-		dir.y = rotated.y;
-		dir.z = rotated.z;
-		to = from + dir;
+
+		float rad = rotspeed * (M_PI / 180.0f);
+		yaw -= rad;
+		to = getTo();
 		updateCamera();
 	}
+	void rotUp()
+	{
+		Vec3 dir = to - from;
+		dir = dir.normalize();
+
+		float rad = rotspeed * (M_PI / 180.0f);
+		pitch += rad;
+		to = getTo();
+		updateCamera();
+	}
+	void rotDown()
+	{
+		Vec3 dir = to - from;
+		dir = dir.normalize();
+
+		float rad = rotspeed * (M_PI / 180.0f);
+		pitch -= rad;
+		to = getTo();
+		updateCamera();
+	}
+
 	void flyUp()
 	{
 		Vec3 dir = up * movespeed;
@@ -281,7 +325,7 @@ Scene* loadScene(std::string sceneName)
 		background = new BackgroundColour(Colour(0.0f, 0.0f, 0.0f));
 	}
 	scene->init(meshTriangles, meshMaterials, background);
-	viewcamera.movespeed = (scene->bounds.max - scene->bounds.min).length() * 0.05f;
+	viewcamera.movespeed = (scene->bounds.max - scene->bounds.min).length() * 0.05f / 5;
 	scene->build();
 	use<SceneBounds>().sceneCentre = (scene->bounds.max + scene->bounds.min) * 0.5f;
 	use<SceneBounds>().sceneRadius = (scene->bounds.max - use<SceneBounds>().sceneCentre).length();

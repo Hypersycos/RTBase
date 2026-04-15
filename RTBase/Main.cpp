@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 	// runTests()
 	
 	// Initialize default parameters
-	std::string sceneName = "scenes/bathroom";
+	std::string sceneName = "scenes/kitchen";
 	//sceneName = "scenes/cornell-box";
 	std::string filename = "GI.hdr";
 	unsigned int SPP = 8192;
@@ -61,17 +61,32 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
+
+	SYSTEM_INFO sysInfo;
+	GetSystemInfo(&sysInfo);
+	std::vector<TaskThread*> threads;
+	threads.resize(sysInfo.dwNumberOfProcessors);
+	for (int i = 0; i < threads.size(); i++)
+	{
+		threads[i] = new TaskThread();
+	}
+
 	Scene* scene = loadScene(sceneName);
 	GamesEngineeringBase::Window canvas;
 	canvas.create((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, "Tracer", false);
 	RayTracer rt;
-	rt.init(scene, &canvas);
+	rt.init(scene, &canvas, threads);
 	bool running = true;
 	GamesEngineeringBase::Timer timer;
+
+	float fastCount = 0;
+	bool wasFast = false;
+
 	while (running)
 	{
 		canvas.checkInput();
 		canvas.clear();
+
 		if (canvas.keyPressed(VK_ESCAPE))
 		{
 			break;
@@ -79,37 +94,68 @@ int main(int argc, char *argv[])
 		if (canvas.keyPressed('W'))
 		{
 			viewcamera.forward();
-			rt.clear();
+			fastCount = 2;
 		}
 		if (canvas.keyPressed('S'))
 		{
 			viewcamera.back();
-			rt.clear();
+			fastCount = 2;
 		}
 		if (canvas.keyPressed('A'))
 		{
 			viewcamera.left();
-			rt.clear();
+			fastCount = 2;
 		}
 		if (canvas.keyPressed('D'))
 		{
 			viewcamera.right();
-			rt.clear();
+			fastCount = 2;
 		}
 		if (canvas.keyPressed('E'))
 		{
 			viewcamera.flyUp();
-			rt.clear();
+			fastCount = 2;
 		}
 		if (canvas.keyPressed('Q'))
 		{
 			viewcamera.flyDown();
-			rt.clear();
+			fastCount = 2;
 		}
+
+		if (canvas.keyPressed('J'))
+		{
+			viewcamera.rotLeft();
+			fastCount = 2;
+		}
+		if (canvas.keyPressed('L'))
+		{
+			viewcamera.rotRight();
+			fastCount = 2;
+		}
+		if (canvas.keyPressed('I'))
+		{
+			viewcamera.rotUp();
+			fastCount = 2;
+		}
+		if (canvas.keyPressed('K'))
+		{
+			viewcamera.rotDown();
+			fastCount = 2;
+		}
+
+		if (fastCount == 2)
+			wasFast = true;
+
+		if (wasFast)
+			rt.clear();
+
+		wasFast = fastCount > 0;
+
 		// Time how long a render call takes
 		timer.reset();
-		rt.render();
+		rt.render(threads, wasFast);
 		float t = timer.dt();
+		fastCount -= t;
 		// Write
 #ifdef ADDITIVESAMPLES
 		std::cout << rt.film->SPP << ": " << t << std::endl;

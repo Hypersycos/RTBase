@@ -20,29 +20,20 @@ public:
 	GamesEngineeringBase::Window* canvas;
 	Film* film;
 	MTRandom *samplers;
-	std::vector<TaskThread*> threads;
-	unsigned int numProcs;
 	std::atomic<int> tileCount = 0;
 	unsigned int tileSize = 16;
 	unsigned int maxTiles;
 
-	void init(Scene* _scene, GamesEngineeringBase::Window* _canvas)
+	void init(Scene* _scene, GamesEngineeringBase::Window* _canvas, std::vector<TaskThread*>& threads)
 	{
 		scene = _scene;
 		canvas = _canvas;
 		film = new Film();
 		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new MitchellNetravaliFilter());
-		SYSTEM_INFO sysInfo;
-		GetSystemInfo(&sysInfo);
+
 		maxTiles = std::ceil(film->width / (float)tileSize) * std::ceil(film->height / (float)tileSize);
-		numProcs = sysInfo.dwNumberOfProcessors;
-		threads.resize(numProcs);
-		for (int i = 0; i < numProcs; i++)
-		{
-			threads[i] = new TaskThread();
-		}
-		samplers = new MTRandom[numProcs];
-		for (unsigned int i = 0; i < numProcs; i++)
+		samplers = new MTRandom[threads.size()];
+		for (unsigned int i = 0; i < threads.size(); i++)
 		{
 			samplers[i] = MTRandom{ i + 1 };
 		}
@@ -125,6 +116,10 @@ public:
 			{
 				return depth == 0 ? shadingData.bsdf->emit(shadingData, shadingData.wo) : Colour{ 0,0,0 };
 			}
+
+/*			if (depth == 0 && shadingData.bsdf->PDF(shadingData, shadingData.wo) != 0)
+				return computeDirect(shadingData, sampler);*/
+
 			Colour direct = pathThroughput * computeDirect(shadingData, sampler);
 
 			Ray indirect;
@@ -133,7 +128,7 @@ public:
 			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
 			indirect.init(shadingData.x + rayDir * EPSILON, rayDir);
 
-			float cosOverPdf = rayDir.dot(shadingData.sNormal) / rayPdf;
+			float cosOverPdf = fabsf(rayDir.dot(shadingData.sNormal)) / rayPdf;
 
 			pathThroughput *= bsdfColour * cosOverPdf;
 
@@ -208,7 +203,7 @@ public:
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
 
-	void renderPixel(unsigned int x, unsigned int y, Sampler* sampler)
+	void renderPixel(unsigned int x, unsigned int y, Sampler* sampler, bool fast)
 	{
 		float px = x + 0.5f;
 		float py = y + 0.5f;
@@ -217,71 +212,103 @@ public:
 		Colour col{};
 		for (int i = 0; i < SAMPLESPP; i++)
 		{
-			col = col + pathTraceWrapper(ray, sampler);
+			if (fast)
+				col = col + direct(ray, sampler);
+			else
+				col = col + pathTraceWrapper(ray, sampler);
 		}
 		film->splat(px, py, col);
 	}
 
-	void renderST()
+	void renderST(bool fast)
 	{
-		for (unsigned int y = 0; y < film->height; y++)
+		if (fast)
 		{
-			for (unsigned int x = 0; x < film->width; x++)
+			for (unsigned int y = 0; y < film->height; y += 4)
 			{
-				renderPixel(x, y, samplers);
+				for (unsigned int x = 0; x < film->width; x += 4)
+				{
+					renderPixel(x, y, samplers, fast);
+				}
+			}
+		}
+		else
+		{
+			for (unsigned int y = 0; y < film->height; y++)
+			{
+				for (unsigned int x = 0; x < film->width; x++)
+				{
+					renderPixel(x, y, samplers, fast);
+				}
 			}
 		}
 	}
 
-	void renderMT()
+	void renderMT(std::vector<TaskThread*>& threads, bool fast)
 	{
 		tileCount = 0;
 
 		static std::vector<unsigned int> taskIDs;
-		taskIDs.resize(numProcs);
-		for (int i = 0; i < numProcs; i++)
+		taskIDs.resize(threads.size());
+		for (int i = 0; i < threads.size(); i++)
 		{
-			auto renderThread = [&,i](std::stop_token stop)
+			auto renderThread = [&,i,fast](std::stop_token stop)
 				{
 					unsigned int myTile;
 					while ((myTile = tileCount++) < maxTiles && !stop.stop_requested())
 					{
-						renderTile(myTile, &(samplers[i]));
+						renderTile(myTile, &(samplers[i]), fast);
 					}
 				};
 
 			taskIDs[i] = threads[i]->QueueTask(renderThread);
 		}
-		for (int i = 0; i < numProcs; i++)
+		for (int i = 0; i < threads.size(); i++)
 		{
 			threads[i]->Join(taskIDs[i]);
 		}
 	}
 
-	void render()
+	void render(std::vector<TaskThread*>& threads, bool fast = false)
 	{
 #ifndef ADDITIVESAMPLES
 		clear();
 #endif
 		film->SPP += SAMPLESPP;
-#ifdef NDEBUG
-		renderMT();
+#ifdef USETHREADS
+		renderMT(threads, fast);
 #else
-		renderST();
+		renderST(fast);
 #endif
-		for (unsigned int y = 0; y < film->height; y++)
+		if (fast)
 		{
-			for (unsigned int x = 0; x < film->width; x++)
+			for (unsigned int y = 0; y < film->height; y += 4)
 			{
-				unsigned char r, g, b;
+				for (unsigned int x = 0; x < film->width; x += 4)
+				{
+					unsigned char r, g, b;
 
-				film->tonemap(x, y, r, g, b);
-				canvas->draw(x, y, r, g, b);
+					film->tonemap(x, y, r, g, b);
+					canvas->draw(x, y, r, g, b);
+				}
+			}
+		}
+		else
+		{
+			for (unsigned int y = 0; y < film->height; y++)
+			{
+				for (unsigned int x = 0; x < film->width; x++)
+				{
+					unsigned char r, g, b;
+
+					film->tonemap(x, y, r, g, b);
+					canvas->draw(x, y, r, g, b);
+				}
 			}
 		}
 	}
 
-	void renderTile(unsigned int index, Sampler* sampler)
+	void renderTile(unsigned int index, Sampler* sampler, bool fast)
 	{
 		unsigned int tilesPerRow = (film->width / tileSize);
 
@@ -290,11 +317,24 @@ public:
 		unsigned int xend = std::min(xstart + tileSize, film->width);
 		unsigned int yend = std::min(ystart + tileSize, film->height);
 
-		for (unsigned int y = ystart; y < yend; y++)
+		if (fast)
 		{
-			for (unsigned int x = xstart; x < xend; x++)
+			for (unsigned int y = ystart; y < yend; y += 4)
 			{
-				renderPixel(x, y, sampler);
+				for (unsigned int x = xstart; x < xend; x += 4)
+				{
+					renderPixel(x, y, sampler, fast);
+				}
+			}
+		}
+		else
+		{
+			for (unsigned int y = ystart; y < yend; y++)
+			{
+				for (unsigned int x = xstart; x < xend; x++)
+				{
+					renderPixel(x, y, sampler, fast);
+				}
 			}
 		}
 	}

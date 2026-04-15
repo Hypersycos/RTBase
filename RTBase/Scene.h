@@ -165,6 +165,9 @@ public:
 			}
 		}
 
+		if (currentTarget > lights.size())
+			currentTarget = lights.size();
+
 		pmf = weights[currentTarget] / sum;
 		return lights[currentTarget];
 	}
