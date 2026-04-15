@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 	// runTests()
 	
 	// Initialize default parameters
-	std::string sceneName = "scenes/Terrain";
+	std::string sceneName = "scenes/bathroom";
 	//sceneName = "scenes/cornell-box";
 	std::string filename = "GI.hdr";
 	unsigned int SPP = 8192;
@@ -112,11 +112,7 @@ int main(int argc, char *argv[])
 		float t = timer.dt();
 		// Write
 #ifdef ADDITIVESAMPLES
-#ifdef SAMPLESPP
-		std::cout << rt.film->SPP * SAMPLESPP << ": " << t << std::endl;
-#else
 		std::cout << rt.film->SPP << ": " << t << std::endl;
-#endif
 #else
 		std::cout << t << std::endl;
 #endif

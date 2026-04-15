@@ -127,10 +127,46 @@ public:
 		unsigned int i = 0;
 		while (i < lights.size() - 1 && target > 0)
 		{
-			target -= lights[i++]->totalIntegratedPower();
+			target -= lights[++i]->totalIntegratedPower();
 		}
 		pmf = lights[i]->totalIntegratedPower() / lightPMF;
 		return lights[i];
+	}
+
+	Light* sampleLightWeightedDistance(Sampler* sampler, Vec3& position, float& pmf)
+	{
+		if (lightPMF == 0)
+			return sampleLightUniform(sampler, pmf);
+
+		thread_local static std::vector<float> weights;
+		weights.resize(lights.size());
+		float currentTarget = 0;
+		float currentWeight = 0;
+		float sum = 0;
+		float rand = sampler->next();
+
+		for (int i = 0; i < lights.size(); i++)
+		{
+			float weight;
+			if (lights[i]->isArea())
+			{
+				weight = lights[i]->totalIntegratedPower() / (dynamic_cast<AreaLight*>(lights[i])->triangle->centre() - position).length();
+			}
+			else
+			{
+				weight = lights[i]->totalIntegratedPower();
+			}
+			weights[i] = weight;
+			sum += weight;
+			currentWeight += weight * rand;
+			while (currentWeight > weights[currentTarget])
+			{
+				currentWeight -= weights[currentTarget++];
+			}
+		}
+
+		pmf = weights[currentTarget] / sum;
+		return lights[currentTarget];
 	}
 
 	Light* sampleLight(Sampler* sampler, float& pmf)

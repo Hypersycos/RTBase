@@ -58,7 +58,8 @@ public:
 		if (shadingData.bsdf->isPureSpecular() == false)
 		{
 			float pmf;
-			Light* light = scene->sampleLight(sampler, pmf);
+			//Light* light = scene->sampleLight(sampler, pmf);
+			Light* light = scene->sampleLightWeightedDistance(sampler, shadingData.x, pmf);
 			float pdf;
 			if (light->isArea())
 			{
@@ -129,10 +130,7 @@ public:
 			Ray indirect;
 			Colour bsdfColour;
 			float rayPdf;
-			//Vec3 rayDir = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
 			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
-			//rayPdf = SamplingDistributions::cosineHemispherePDF(rayDir);
-			//rayDir = shadingData.frame.toWorld(rayDir);
 			indirect.init(shadingData.x + rayDir * EPSILON, rayDir);
 
 			float cosOverPdf = rayDir.dot(shadingData.sNormal) / rayPdf;
@@ -221,7 +219,6 @@ public:
 		{
 			col = col + pathTraceWrapper(ray, sampler);
 		}
-		col = col / SAMPLESPP;
 		film->splat(px, py, col);
 	}
 
@@ -266,7 +263,7 @@ public:
 #ifndef ADDITIVESAMPLES
 		clear();
 #endif
-		film->SPP++;
+		film->SPP += SAMPLESPP;
 #ifdef NDEBUG
 		renderMT();
 #else

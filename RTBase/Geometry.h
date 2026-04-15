@@ -310,7 +310,7 @@ struct IntersectionData
 #define PREFNODE_TRIANGLES 4
 #define TRAVERSE_COST 1.0f
 #define TRIANGLE_COST 2.0f
-#define BUILD_BINS 10
+#define BUILD_BINS 64
 
 class BVHNode
 {
