@@ -131,7 +131,7 @@ public:
 
 			if (depthRemaining > 0)
 			{
-				return direct + pathTrace(indirect, pathThroughput, depthRemaining - 1, sampler, shadingData.bsdf->isPureSpecular());
+				return direct + fastPathTrace(indirect, pathThroughput, depthRemaining - 1, sampler, shadingData.bsdf->isPureSpecular());
 			}
 			else
 			{
@@ -192,7 +192,7 @@ public:
 			else if (shadingData.bsdf->isPureSpecular())
 			{
 				Colour pt{ 1,1,1 };
-				return fastPathTrace(r, pt, 1, sampler, true);
+				return fastPathTrace(r, pt, 2, sampler, true);
 			}
 			return computeDirect(shadingData, sampler);
 		}
@@ -261,13 +261,13 @@ public:
 			film->splat(px, py, col);
 	}
 
-	void renderST(bool fast)
+	void renderST(bool fast, unsigned int xL, unsigned int xR, unsigned int yT, unsigned int yB)
 	{
 		if (fast)
 		{
-			for (unsigned int y = 0; y < film->height; y += 4)
+			for (unsigned int y = yT; y < yB; y += 4)
 			{
-				for (unsigned int x = 0; x < film->width; x += 4)
+				for (unsigned int x = xL; x < xR; x += 4)
 				{
 					renderPixel(x, y, samplers, fast);
 				}
@@ -275,9 +275,9 @@ public:
 		}
 		else
 		{
-			for (unsigned int y = 0; y < film->height; y++)
+			for (unsigned int y = yT; y < yB; y++)
 			{
-				for (unsigned int x = 0; x < film->width; x++)
+				for (unsigned int x = xL; x < xR; x++)
 				{
 					renderPixel(x, y, samplers, fast);
 				}
@@ -285,7 +285,7 @@ public:
 		}
 	}
 
-	void renderMT(std::vector<TaskThread*>& threads, bool fast)
+	void renderMT(std::vector<TaskThread*>& threads, bool fast, unsigned int xL, unsigned int xR, unsigned int yT, unsigned int yB)
 	{
 		tileCount = 0;
 
@@ -293,12 +293,12 @@ public:
 		taskIDs.resize(threads.size());
 		for (int i = 0; i < threads.size(); i++)
 		{
-			auto renderThread = [&,i,fast](std::stop_token stop)
+			auto renderThread = [&,i,fast,xL,xR,yT,yB](std::stop_token stop)
 				{
 					unsigned int myTile;
 					while ((myTile = tileCount++) < maxTiles && !stop.stop_requested())
 					{
-						renderTile(myTile, &(samplers[i]), fast);
+						renderTile(myTile, &(samplers[i]), fast, xL, xR, yT, yB);
 					}
 				};
 
@@ -310,22 +310,30 @@ public:
 		}
 	}
 
-	void render(std::vector<TaskThread*>& threads, bool fast = false)
+	void render(std::vector<TaskThread*>& threads, bool fast = false, unsigned int xL = 0, unsigned int xR = INT32_MAX, unsigned int yT = 0, unsigned int yB = INT32_MAX)
 	{
 #ifndef ADDITIVESAMPLES
 		clear();
 #endif
 		film->SPP += SAMPLESPP;
+
+		xL = std::max(0u, xL);
+		xR = std::min(xR, film->width);
+
+		yT = std::max(0u, yT);
+		yB = std::min(yB, film->height);
+
 #ifdef USETHREADS
-		renderMT(threads, fast);
+		renderMT(threads, fast, xL, xR, yT, yB);
 #else
-		renderST(fast);
+		renderST(fast, xL, xR, yT, yB);
 #endif
+
 		if (fast)
 		{
-			for (unsigned int y = 0; y < film->height; y += 4)
+			for (unsigned int y = yT; y < yB; y += 4)
 			{
-				for (unsigned int x = 0; x < film->width; x += 4)
+				for (unsigned int x = xL; x < xR; x += 4)
 				{
 					unsigned char r, g, b;
 					film->tonemap(x, y, r, g, b);
@@ -342,9 +350,9 @@ public:
 		}
 		else
 		{
-			for (unsigned int y = 0; y < film->height; y++)
+			for (unsigned int y = yT; y < yB; y++)
 			{
-				for (unsigned int x = 0; x < film->width; x++)
+				for (unsigned int x = xL; x < xR; x++)
 				{
 					unsigned char r, g, b;
 
@@ -355,14 +363,17 @@ public:
 		}
 	}
 
-	void renderTile(unsigned int index, Sampler* sampler, bool fast)
+	void renderTile(unsigned int index, Sampler* sampler, bool fast, unsigned int xL, unsigned int xR, unsigned int yT, unsigned int yB)
 	{
-		unsigned int tilesPerRow = (film->width / tileSize);
+		unsigned int width = xR - xL;
+		unsigned int height = yB - yT;
 
-		unsigned int ystart = index / tilesPerRow * tileSize;
-		unsigned int xstart = index % tilesPerRow * tileSize;
-		unsigned int xend = std::min(xstart + tileSize, film->width);
-		unsigned int yend = std::min(ystart + tileSize, film->height);
+		unsigned int tilesPerRow = (width / tileSize);
+
+		unsigned int ystart = index / tilesPerRow * tileSize + yT;
+		unsigned int xstart = index % tilesPerRow * tileSize + xL;
+		unsigned int xend = std::min(xstart + tileSize, xR);
+		unsigned int yend = std::min(ystart + tileSize, yB);
 
 		if (fast)
 		{

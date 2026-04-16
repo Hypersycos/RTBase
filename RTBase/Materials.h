@@ -168,14 +168,14 @@ public:
 		wi.x = -wi.x;
 		wi.y = -wi.y;
 		pdf = 1;
-		reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / (wi.dot(shadingData.sNormal));
+		reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / wi.z;
 		wi = shadingData.frame.toWorld(wi);
 		return wi;
 	}
 	Colour evaluate(const ShadingData& shadingData, const Vec3& wi)
 	{
 		// Replace this with Mirror evaluation code
-		return albedo->sample(shadingData.tu, shadingData.tv) / (wi.dot(shadingData.sNormal));
+		return albedo->sample(shadingData.tu, shadingData.tv) / wi.dot(shadingData.sNormal);
 	}
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
@@ -260,40 +260,49 @@ public:
 	}
 	Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf)
 	{
-		Vec3 wi = shadingData.frame.toLocal(shadingData.wo);
-		float cosTheta = wi.dot(shadingData.sNormal);
-		float fresnel = ShadingHelper::schlick(cosTheta, intIOR, extIOR);
+		Vec3 rayDir = shadingData.frame.toLocal(-shadingData.wo);
+		bool entering = rayDir.z < 0;
+		float outerIndex = entering ? extIOR : intIOR;
+		float innerIndex = entering ? intIOR : extIOR;
+
+		float cosTheta = fabsf(rayDir.z);
+		float fresnel = ShadingHelper::fresnelDielectric(cosTheta, innerIndex, outerIndex);
 
 		if (fresnel == -1)
 			fresnel = 1;
 
 		if (sampler->next() <= fresnel)
 		{ //reflect
-			pdf = 1 / fresnel;
-			Vec3 wr = shadingData.frame.toLocal(shadingData.wo);
+			pdf = fresnel;
+			Vec3 wr = -rayDir;
 			wr.x = -wr.x;
 			wr.y = -wr.y;
 
-			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wr.dot(shadingData.sNormal));
+			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / wr.z * fresnel;
 			return shadingData.frame.toWorld(wr);
 		}
 		else
 		{ //refract
-			pdf = 1 / (1 - fresnel);
-			float theta = SphericalCoordinates::sphericalTheta(wi);
-			float phi = SphericalCoordinates::sphericalPhi(wi);
+			pdf = (1 - fresnel);
+
+			rayDir = -rayDir;
+
+			float theta_in = SphericalCoordinates::sphericalTheta(rayDir);
+			float phi_in = SphericalCoordinates::sphericalPhi(rayDir);
+			float n = outerIndex / innerIndex;
+			float sin_theta_out = n * sinf(theta_in);
+
+			float theta_out = asinf(sin_theta_out);
+			float phi_out = phi_in + M_PI;
 			
-			Vec3 wt = { sinf(theta) * cosf(phi), sinf(theta) * sinf(phi), -cosf(theta) };
-			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wt.dot(shadingData.sNormal)) * (extIOR * extIOR) / (intIOR * intIOR);
+			Vec3 wt = { sinf(theta_out) * cosf(phi_out), sinf(theta_out) * sinf(phi_out), -cosf(theta_out) * (entering ? 1 : -1)};
+			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wt.z) * n * n * (1 - fresnel);
 			return shadingData.frame.toWorld(wt);
 		}
 	}
 	Colour evaluate(const ShadingData& shadingData, const Vec3& wi)
 	{
-		Vec3 localwi = shadingData.frame.toLocal(wi);
 		bool reflect = wi.dot(shadingData.sNormal);
-
-		float cosTheta = shadingData.wo.dot(shadingData.sNormal);
 		
 		if (reflect)
 		{
@@ -301,7 +310,7 @@ public:
 		}
 		else
 		{
-			return albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wi.dot(shadingData.sNormal)) * (intIOR * intIOR) / (extIOR * extIOR);
+			return albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wi.dot(shadingData.sNormal));// *(intIOR * intIOR) / (extIOR * extIOR);
 		}
 	}
 

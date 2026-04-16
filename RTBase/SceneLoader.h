@@ -23,34 +23,34 @@ public:
 	{
 		rotspeed = 5.0f;
 	}
-	void forward()
+	void forward(bool slow)
 	{
 		Vec3 dir = to - from;
-		dir = dir.normalize() * movespeed;
+		dir = dir.normalize() * movespeed * (slow ? 0.1 : 1);
 		from = from + dir;
 		to = to + dir;
 		updateCamera();
 	}
-	void back()
+	void back(bool slow)
 	{
 		Vec3 dir = to - from;
-		dir = dir.normalize() * movespeed;
+		dir = dir.normalize() * movespeed * (slow ? 0.1 : 1);
 		from = from - dir;
 		to = to + dir;
 		updateCamera();
 	}
-	void left()
+	void left(bool slow)
 	{
 		Vec3 dir = -Cross(to - from, up);
-		dir = dir.normalize() * movespeed;
+		dir = dir.normalize() * movespeed * (slow ? 0.1 : 1);
 		from = from + dir;
 		to = to + dir;
 		updateCamera();
 	}
-	void right()
+	void right(bool slow)
 	{
 		Vec3 dir = Cross(to - from, up);
-		dir = dir.normalize() * movespeed;
+		dir = dir.normalize() * movespeed * (slow ? 0.1 : 1);
 		from = from + dir;
 		to = to + dir;
 		updateCamera();
@@ -109,16 +109,16 @@ public:
 		updateCamera();
 	}
 
-	void flyUp()
+	void flyUp(bool slow)
 	{
-		Vec3 dir = up * movespeed;
+		Vec3 dir = up * movespeed * (slow ? 0.1 : 1);
 		from = from + dir;
 		to = to + dir;
 		updateCamera();
 	}
-	void flyDown()
+	void flyDown(bool slow)
 	{
-		Vec3 dir = up * movespeed;
+		Vec3 dir = up * movespeed * (slow ? 0.1 : 1);
 		from = from - dir;
 		to = to - dir;
 		updateCamera();

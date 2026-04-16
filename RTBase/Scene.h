@@ -135,7 +135,7 @@ public:
 
 	Light* sampleLightWeightedDistance(Sampler* sampler, Vec3& position, float& pmf)
 	{
-		if (lightPMF == 0)
+		if (lightPMF == 0 || lights.size() > 100)
 			return sampleLightUniform(sampler, pmf);
 
 		thread_local static std::vector<float> weights;

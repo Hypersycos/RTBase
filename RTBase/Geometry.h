@@ -232,8 +232,8 @@ public:
 		Vec3 TEntry = Min(t1, t2);
 		Vec3 TExit = Max(t1, t2);
 
-		float tEntry = std::max(TEntry.x, std::max(TEntry.y, TEntry.z));
-		float tExit = std::min(TExit.x, std::min(TExit.y, TExit.z));
+		float tEntry = std::max({ TEntry.x, TEntry.y, TEntry.z });
+		float tExit = std::min({ TExit.x,TExit.y, TExit.z });
 
 		t = tEntry < 0 ? tExit : std::min(tEntry, tExit);
 
@@ -248,8 +248,8 @@ public:
 		Vec3 TEntry = Min(t1, t2);
 		Vec3 TExit = Max(t1, t2);
 
-		float tEntry = std::max(TEntry.x, std::max(TEntry.y, TEntry.z));
-		float tExit = std::min(TExit.x, std::min(TExit.y, TExit.z));
+		float tEntry = std::max({ TEntry.x, TEntry.y, TEntry.z });
+		float tExit = std::min({ TExit.x,TExit.y, TExit.z });
 
 		return tEntry <= tExit && tExit > 0;
 	}

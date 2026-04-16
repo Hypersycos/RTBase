@@ -81,6 +81,10 @@ int main(int argc, char *argv[])
 
 	bool fast = true;
 	float fastDebounce = 0;
+	int xL = 0;
+	int xR = scene->camera.width;
+	int yT = 0;
+	int yB = scene->camera.height;
 
 	while (running)
 	{
@@ -93,53 +97,83 @@ int main(int argc, char *argv[])
 		}
 		if (canvas.keyPressed('W'))
 		{
-			viewcamera.forward();
+			viewcamera.forward(canvas.keyPressed(VK_CONTROL));
 			rt.clear();
 		}
 		if (canvas.keyPressed('S'))
 		{
-			viewcamera.back();
+			viewcamera.back(canvas.keyPressed(VK_CONTROL));
 			rt.clear();
 		}
 		if (canvas.keyPressed('A'))
 		{
-			viewcamera.left();
+			viewcamera.left(canvas.keyPressed(VK_CONTROL));
 			rt.clear();
 		}
 		if (canvas.keyPressed('D'))
 		{
-			viewcamera.right();
+			viewcamera.right(canvas.keyPressed(VK_CONTROL));
 			rt.clear();
 		}
 		if (canvas.keyPressed('E'))
 		{
-			viewcamera.flyUp();
+			viewcamera.flyUp(canvas.keyPressed(VK_CONTROL));
 			rt.clear();
 		}
 		if (canvas.keyPressed('Q'))
 		{
-			viewcamera.flyDown();
+			viewcamera.flyDown(canvas.keyPressed(VK_CONTROL));
+			rt.clear();
+		}
+
+		if (canvas.keyPressed(VK_LEFT))
+		{
+			viewcamera.rotLeft();
+			rt.clear();
+		}
+		if (canvas.keyPressed(VK_RIGHT))
+		{
+			viewcamera.rotRight();
+			rt.clear();
+		}
+		if (canvas.keyPressed(VK_UP))
+		{
+			viewcamera.rotUp();
+			rt.clear();
+		}
+		if (canvas.keyPressed(VK_DOWN))
+		{
+			viewcamera.rotDown();
 			rt.clear();
 		}
 
 		if (canvas.keyPressed('J'))
 		{
-			viewcamera.rotLeft();
+			xR -= 8 * (canvas.keyPressed(VK_SHIFT) ? -1 : 1);
 			rt.clear();
 		}
 		if (canvas.keyPressed('L'))
 		{
-			viewcamera.rotRight();
+			xL += 8 * (canvas.keyPressed(VK_SHIFT) ? -1 : 1);
 			rt.clear();
 		}
 		if (canvas.keyPressed('I'))
 		{
-			viewcamera.rotUp();
+			yB -= 8 * (canvas.keyPressed(VK_SHIFT) ? -1 : 1);
 			rt.clear();
 		}
 		if (canvas.keyPressed('K'))
 		{
-			viewcamera.rotDown();
+			yT += 8 * (canvas.keyPressed(VK_SHIFT) ? -1 : 1);
+			rt.clear();
+		}
+
+		if (canvas.keyPressed('R'))
+		{
+			xL = 0;
+			xR = rt.film->width;
+			yT = 0;
+			yB = rt.film->height;
 			rt.clear();
 		}
 
@@ -147,12 +181,12 @@ int main(int argc, char *argv[])
 		{
 			fast = !fast;
 			rt.clear();
-			fastDebounce = 0.5f;
+			fastDebounce = 2;
 		}
 
 		// Time how long a render call takes
 		timer.reset();
-		rt.render(threads, fast);
+		rt.render(threads, fast, xL, xR, yT, yB);
 		float t = timer.dt();
 		fastDebounce -= t;
 		// Write
