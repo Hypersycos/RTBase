@@ -274,17 +274,17 @@ public:
 			wr.x = -wr.x;
 			wr.y = -wr.y;
 
-			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wr.dot(shadingData.sNormal)) * fresnel;
+			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wr.dot(shadingData.sNormal));
 			return shadingData.frame.toWorld(wr);
 		}
 		else
 		{ //refract
-			pdf = (1 - fresnel);
+			pdf = 1 / (1 - fresnel);
 			float theta = SphericalCoordinates::sphericalTheta(wi);
 			float phi = SphericalCoordinates::sphericalPhi(wi);
 			
 			Vec3 wt = { sinf(theta) * cosf(phi), sinf(theta) * sinf(phi), -cosf(theta) };
-			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wt.dot(shadingData.sNormal)) * (extIOR * extIOR) / (intIOR * intIOR) / (1 - fresnel);
+			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wt.dot(shadingData.sNormal)) * (extIOR * extIOR) / (intIOR * intIOR);
 			return shadingData.frame.toWorld(wt);
 		}
 	}

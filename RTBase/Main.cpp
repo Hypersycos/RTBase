@@ -79,8 +79,8 @@ int main(int argc, char *argv[])
 	bool running = true;
 	GamesEngineeringBase::Timer timer;
 
-	float fastCount = 0;
-	bool wasFast = false;
+	bool fast = true;
+	float fastDebounce = 0;
 
 	while (running)
 	{
@@ -94,68 +94,67 @@ int main(int argc, char *argv[])
 		if (canvas.keyPressed('W'))
 		{
 			viewcamera.forward();
-			fastCount = 2;
+			rt.clear();
 		}
 		if (canvas.keyPressed('S'))
 		{
 			viewcamera.back();
-			fastCount = 2;
+			rt.clear();
 		}
 		if (canvas.keyPressed('A'))
 		{
 			viewcamera.left();
-			fastCount = 2;
+			rt.clear();
 		}
 		if (canvas.keyPressed('D'))
 		{
 			viewcamera.right();
-			fastCount = 2;
+			rt.clear();
 		}
 		if (canvas.keyPressed('E'))
 		{
 			viewcamera.flyUp();
-			fastCount = 2;
+			rt.clear();
 		}
 		if (canvas.keyPressed('Q'))
 		{
 			viewcamera.flyDown();
-			fastCount = 2;
+			rt.clear();
 		}
 
 		if (canvas.keyPressed('J'))
 		{
 			viewcamera.rotLeft();
-			fastCount = 2;
+			rt.clear();
 		}
 		if (canvas.keyPressed('L'))
 		{
 			viewcamera.rotRight();
-			fastCount = 2;
+			rt.clear();
 		}
 		if (canvas.keyPressed('I'))
 		{
 			viewcamera.rotUp();
-			fastCount = 2;
+			rt.clear();
 		}
 		if (canvas.keyPressed('K'))
 		{
 			viewcamera.rotDown();
-			fastCount = 2;
+			rt.clear();
 		}
 
-		if (fastCount == 2)
-			wasFast = true;
-
-		if (wasFast)
+		if (canvas.keyPressed('F') && fastDebounce <= 0)
+		{
+			fast = !fast;
 			rt.clear();
-
-		wasFast = fastCount > 0;
+			fastDebounce = 0.5f;
+		}
 
 		// Time how long a render call takes
 		timer.reset();
-		rt.render(threads, wasFast);
+		rt.render(threads, fast);
 		float t = timer.dt();
-		fastCount -= t;
+		fastDebounce -= t;
 		// Write
 #ifdef ADDITIVESAMPLES
 		std::cout << rt.film->SPP << ": " << t << std::endl;

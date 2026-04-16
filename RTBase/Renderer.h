@@ -102,11 +102,11 @@ public:
 	Colour pathTraceWrapper(Ray& r, Sampler* sampler)
 	{
 		Colour pathThroughput = { 1,1,1 };
-		Colour result = pathTrace(r, pathThroughput, 0, sampler);
+		Colour result = pathTrace(r, pathThroughput, 0, sampler, true);
 		return result;
 	}
 
-	Colour pathTrace(Ray& r, Colour& pathThroughput, int depth, Sampler* sampler)
+	Colour fastPathTrace(Ray& r, Colour& pathThroughput, int depthRemaining, Sampler* sampler, bool wasSpecular)
 	{
 		IntersectionData intersection = scene->traverse(r);
 		ShadingData shadingData = scene->calculateShadingData(intersection, r);
@@ -114,11 +114,44 @@ public:
 		{
 			if (shadingData.bsdf->isLight())
 			{
-				return depth == 0 ? shadingData.bsdf->emit(shadingData, shadingData.wo) : Colour{ 0,0,0 };
+				return wasSpecular ? shadingData.bsdf->emit(shadingData, shadingData.wo) * pathThroughput : Colour{ 0,0,0 };
 			}
 
-/*			if (depth == 0 && shadingData.bsdf->PDF(shadingData, shadingData.wo) != 0)
-				return computeDirect(shadingData, sampler);*/
+			Colour direct = pathThroughput * computeDirect(shadingData, sampler);
+
+			Ray indirect;
+			Colour bsdfColour;
+			float rayPdf;
+			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
+			indirect.init(shadingData.x + rayDir * EPSILON, rayDir);
+
+			float cosOverPdf = fabsf(rayDir.dot(shadingData.sNormal)) / rayPdf;
+
+			pathThroughput *= bsdfColour * cosOverPdf;
+
+			if (depthRemaining > 0)
+			{
+				return direct + pathTrace(indirect, pathThroughput, depthRemaining - 1, sampler, shadingData.bsdf->isPureSpecular());
+			}
+			else
+			{
+				return direct + Colour{ 0,0,0 };
+			}
+		}
+
+		return scene->background->evaluate(r.dir) * pathThroughput;
+	}
+
+	Colour pathTrace(Ray& r, Colour& pathThroughput, int depth, Sampler* sampler, bool wasSpecular)
+	{
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+		if (shadingData.t < FLT_MAX)
+		{
+			if (shadingData.bsdf->isLight())
+			{
+				return wasSpecular ? shadingData.bsdf->emit(shadingData, shadingData.wo) * pathThroughput : Colour{0,0,0};
+			}
 
 			Colour direct = pathThroughput * computeDirect(shadingData, sampler);
 
@@ -136,7 +169,7 @@ public:
 			if (sampler->next() < q)
 			{
 				pathThroughput = pathThroughput / q;
-				return direct + pathTrace(indirect, pathThroughput, depth + 1, sampler);
+				return direct + pathTrace(indirect, pathThroughput, depth + 1, sampler, shadingData.bsdf->isPureSpecular());
 			}
 			else
 			{
@@ -155,6 +188,11 @@ public:
 			if (shadingData.bsdf->isLight())
 			{
 				return shadingData.bsdf->emit(shadingData, shadingData.wo);
+			}
+			else if (shadingData.bsdf->isPureSpecular())
+			{
+				Colour pt{ 1,1,1 };
+				return fastPathTrace(r, pt, 1, sampler, true);
 			}
 			return computeDirect(shadingData, sampler);
 		}
@@ -217,7 +255,10 @@ public:
 			else
 				col = col + pathTraceWrapper(ray, sampler);
 		}
-		film->splat(px, py, col);
+		if (fast)
+			(*film)(x, y) = (*film)(x, y) + col;
+		else
+			film->splat(px, py, col);
 	}
 
 	void renderST(bool fast)
@@ -287,9 +328,15 @@ public:
 				for (unsigned int x = 0; x < film->width; x += 4)
 				{
 					unsigned char r, g, b;
-
 					film->tonemap(x, y, r, g, b);
-					canvas->draw(x, y, r, g, b);
+
+					for (int i = 0; i < 4; i++)
+					{
+						for (int j = 0; j < 4; j++)
+						{
+							canvas->draw(x + j, y + i, r, g, b);
+						}
+					}
 				}
 			}
 		}
