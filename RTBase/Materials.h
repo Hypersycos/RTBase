@@ -302,15 +302,24 @@ public:
 	}
 	Colour evaluate(const ShadingData& shadingData, const Vec3& wi)
 	{
-		bool reflect = wi.dot(shadingData.sNormal);
+		Vec3 rayDir = shadingData.frame.toLocal(-shadingData.wo);
+		bool entering = rayDir.z < 0;
+
+		bool reflect = wi.dot(shadingData.wo) > 0;
+		float outerIndex = entering ? extIOR : intIOR;
+		float innerIndex = entering ? intIOR : extIOR;
+
+		float cosTheta = fabsf(rayDir.z);
+		float fresnel = ShadingHelper::fresnelDielectric(cosTheta, innerIndex, outerIndex);
 		
 		if (reflect)
 		{
-			return albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wi.dot(shadingData.sNormal));
+			return albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wi.dot(shadingData.sNormal)) * fresnel;
 		}
 		else
 		{
-			return albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wi.dot(shadingData.sNormal));// *(intIOR * intIOR) / (extIOR * extIOR);
+			float n = outerIndex / innerIndex;
+			return albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wi.dot(shadingData.sNormal)) * n * n * (1 - fresnel);
 		}
 	}
 
