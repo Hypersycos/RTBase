@@ -331,7 +331,7 @@ public:
 		Colour c = filmC / SPP;
 
 		float L_in = c.Lum();
-		float L_out = tonemapPassthrough(c, L_in, exposure);
+		float L_out = tonemapFilmic(c, L_in, exposure);
 
 		float scalar = L_in == 0 ? 0 : L_out / L_in;
 
