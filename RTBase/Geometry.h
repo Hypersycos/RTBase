@@ -127,7 +127,7 @@ public:
 		float denom = n.dot(r.dir);
 		if (denom == 0)
 			return false;
-		t = (d - n.dot(r.o)) / denom;
+		t = (d - n.dot(r.o)) / denom - EPSILON;
 
 		Vec3 p = r.at(t);
 		float invArea = .5f / area;
@@ -156,16 +156,17 @@ public:
 		
 		invdet = 1 / invdet;
 
-		u = T.dot(rayCrossE1) * invdet;
-		if (u < 0 || u > 1)
+		v = T.dot(rayCrossE1) * invdet;
+		if (v < 0 || v > 1)
 			return false;
 
 		Vec3 TCrossE0 = T.cross(e0);
 
-		v = r.dir.dot(TCrossE0) * invdet;
-		if (v < 0 || (u + v) > 1)
+		float w = r.dir.dot(TCrossE0) * invdet;
+		if (w < 0 || (w + v) > 1)
 			return false;
 
+		u = 1 - v - w;
 		t = e1.dot(TCrossE0) * invdet;
 
 		return t >= 0;
@@ -580,7 +581,6 @@ public:
 	}
 	bool traverseVisible(const Ray& ray, const float maxT, const std::vector<Triangle>& triangles)
 	{
-		return traverse(ray, triangles).t > maxT;
 		// Add visibility code here
 		std::stack<BVHNode*> nodeStack;
 		nodeStack.push(this);

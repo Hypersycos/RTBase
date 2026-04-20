@@ -58,6 +58,7 @@ public:
 
 	Vec3 getTo()
 	{
+		up = Vec3(0, 1, 0);
 		return from + Vec3(-sinf(yaw) * cosf(pitch), sin(pitch), -cos(yaw) * cos(pitch));
 	}
 

@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 	// runTests()
 	
 	// Initialize default parameters
-	std::string sceneName = "scenes/kitchen";
+	std::string sceneName = "scenes/house";
 	//sceneName = "scenes/cornell-box";
 	std::string filename = "GI.hdr";
 	unsigned int SPP = 8192;
@@ -199,7 +199,7 @@ int main(int argc, char *argv[])
 		{
 			rt.saveHDR(filename);
 		}
-		if (canvas.keyPressed('L'))
+		if (canvas.keyPressed('O'))
 		{
 			size_t pos = filename.find_last_of('.');
 			std::string ldrFilename = filename.substr(0, pos) + ".png";
