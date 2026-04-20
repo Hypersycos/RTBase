@@ -172,6 +172,47 @@ public:
 		return lights[currentTarget];
 	}
 
+	float pdfLightWeightedDistance(ShadingData& data, Ray r, bool environment)
+	{
+		if (lightPMF == 0 || lights.size() > 100)
+			return 1.0f / lights.size();
+
+		int target;
+		float targetWeight = 0;
+		float targetPdf = 0;
+		float sum = 0;
+
+		for (int i = 0; i < lights.size(); i++)
+		{
+			float weight;
+			if (lights[i]->isArea())
+			{
+				AreaLight* areaLight = dynamic_cast<AreaLight*>(lights[i]);
+				weight = lights[i]->totalIntegratedPower() / (areaLight->triangle->centre() - data.x).length();
+				float t, u, v;
+				if (areaLight->triangle->rayIntersect(r, t, u, v))
+				{
+					target = i;
+					targetWeight = weight;
+					targetPdf = lights[i]->PDF(data, r.dir);
+				}
+			}
+			else
+			{
+				weight = lights[i]->totalIntegratedPower();
+				if (environment)
+				{
+					target = i;
+					targetWeight = weight;
+					targetPdf = lights[i]->PDF(data, r.dir);
+				}
+			}
+			sum += weight;
+		}
+
+		return targetWeight * targetPdf / sum;
+	}
+
 	Light* sampleLight(Sampler* sampler, float& pmf)
 	{
 		return sampleLightWeighted(sampler, pmf);

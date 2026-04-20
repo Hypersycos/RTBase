@@ -442,12 +442,12 @@ private:
 				return;
 			}
 
-			l = new BVHNode();
 			if (depth <= 5)
 			{
 				std::cout << "Depth: " << depth << ", start: " << start << ", mid: " << mid << ", end : " << start + count << std::endl;
 			}
 
+			l = new BVHNode();
 			l->build(triangles, indices, start, mid - start, depth + 1);
 
 			r = new BVHNode();
@@ -542,7 +542,7 @@ public:
 			BVHNode* node = nodeStack.top();
 			nodeStack.pop();
 
-			if (num > 1 && !node->bounds.rayAABB(ray))
+			if (node->num > 1 && !node->bounds.rayAABB(ray))
 			{
 				continue;
 			}
@@ -581,6 +581,7 @@ public:
 	}
 	bool traverseVisible(const Ray& ray, const float maxT, const std::vector<Triangle>& triangles)
 	{
+		//return traverse(ray, triangles).t > maxT;
 		// Add visibility code here
 		std::stack<BVHNode*> nodeStack;
 		nodeStack.push(this);
@@ -588,10 +589,10 @@ public:
 		while (!nodeStack.empty())
 		{
 			BVHNode* node = nodeStack.top();
+			nodeStack.pop();
 
-			if (!node->bounds.rayAABB(ray))
+			if (node->num > 1 && !node->bounds.rayAABB(ray))
 			{
-				nodeStack.pop();
 				continue;
 			}
 
@@ -600,17 +601,20 @@ public:
 				for (int i = node->offset; i < node->offset + node->num; i++)
 				{
 					float t, alpha, beta;
-					if (triangles[indices[i]].rayIntersect(ray, t, alpha, beta) && t <= maxT)
+					if (triangles[indices[i]].rayIntersect(ray, t, alpha, beta))
 					{
-						return false;
+						if (t < maxT)
+						{
+							return false;
+						}
 					}
 				}
-				return true;
 			}
-
-			nodeStack.pop();
-			nodeStack.push(node->l);
-			nodeStack.push(node->r);
+			else
+			{
+				nodeStack.push(node->l);
+				nodeStack.push(node->r);
+			}
 		}
 		return true;
 	}

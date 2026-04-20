@@ -13,6 +13,16 @@
 #include <functional>
 #include <mutex>
 
+
+class TestSampler : public Sampler
+{
+	// Inherited via Sampler
+	float next()
+	{
+		return 0.5f;
+	}
+};
+
 class RayTracer
 {
 public:
@@ -99,13 +109,15 @@ public:
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
 
-	Colour computeDirectMIS(ShadingData shadingData, Sampler* sampler, float& pmf, float& pdf, Vec3& wi, Light*& light)
+	Colour computeDirectMIS(ShadingData shadingData, Sampler* sampler)
 	{
+		float pmf;
+		float pdf;
+		Vec3 wi;
 		// Is surface is specular we cannot computing direct lighting
 		if (shadingData.bsdf->isPureSpecular() == false)
 		{
-			//Light* light = scene->sampleLight(sampler, pmf);
-			light = scene->sampleLightWeightedDistance(sampler, shadingData.x, pmf);
+			Light* light = scene->sampleLightWeightedDistance(sampler, shadingData.x, pmf);
 			if (light->isArea())
 			{
 				Colour emittedColour;
@@ -124,14 +136,14 @@ public:
 						{
 							float geoTerm = cosTheta * cosThetaPrime / (surfaceToLight.lengthSq());
 							Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
-							return emittedColour * bsdfColour * geoTerm;
+							return emittedColour * bsdfColour * geoTerm * powerHeuristic(pdf * pmf, shadingData.bsdf->PDF(shadingData, wi)) / (pdf * pmf);
 						}
 					}
 				}
 			}
 			else
 			{
-				Vec3 wi = light->sampleDirectionFromLight(sampler, pdf);
+				wi = light->sampleDirectionFromLight(sampler, pdf);
 
 				float cosTheta = wi.dot(shadingData.sNormal);
 				if (cosTheta > 0)
@@ -144,7 +156,7 @@ public:
 					{
 						float geoTerm = cosTheta;
 						Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
-						return light->evaluate(wi) * bsdfColour * geoTerm / (pdf * pmf);
+						return light->evaluate(wi) * bsdfColour * geoTerm * powerHeuristic(pdf * pmf, shadingData.bsdf->PDF(shadingData, wi)) / (pdf * pmf);
 					}
 				}
 			}
@@ -204,14 +216,10 @@ public:
 		{
 			if (shadingData.bsdf->isLight())
 			{
-				return wasSpecular ? shadingData.bsdf->emit(shadingData, shadingData.wo) * pathThroughput : Colour{0,0,0};
+				return wasSpecular ? shadingData.bsdf->emit(shadingData, shadingData.wo) * pathThroughput : Colour{ 0,0,0 };
 			}
 
-			float directPmf;
-			float directPdf;
-			Vec3 directDir;
-			Light* light;
-			Colour direct = pathThroughput * computeDirectMIS(shadingData, sampler, directPmf, directPdf, directDir, light);
+			Colour direct = pathThroughput * computeDirect(shadingData, sampler);
 
 			Ray indirect;
 			Colour bsdfColour;
@@ -219,16 +227,7 @@ public:
 			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
 			indirect.init(shadingData.x + rayDir * EPSILON, rayDir);
 
-/*			float directBsdfPdf = shadingData.bsdf->PDF(shadingData, directDir);
-			float indirectLightPdf = light->PDF(shadingData, rayDir) * directPmf;
-
-			float w1 = directPmf * directPdf / (directPmf * directPdf + directBsdfPdf);*/
-
-			float wt = (directPmf * directPdf + rayPdf);
-			float w1 = directPmf * directPdf / wt;
-			float w2 = 1 - w1;
-
-			float cosOverPdf = fabsf(rayDir.dot(shadingData.sNormal)) / wt;
+			float cosOverPdf = fabsf(rayDir.dot(shadingData.sNormal)) / rayPdf;
 
 			pathThroughput *= bsdfColour * cosOverPdf;
 
@@ -236,16 +235,97 @@ public:
 			if (sampler->next() < q)
 			{
 				pathThroughput = pathThroughput / q;
-				return direct * w1 / wt + pathTrace(indirect, pathThroughput, depth + 1, sampler, shadingData.bsdf->isPureSpecular()) * w2;
+				return direct + pathTrace(indirect, pathThroughput, depth + 1, sampler, shadingData.bsdf->isPureSpecular());
 			}
 			else
 			{
-				return direct / (directPmf * directPdf) + Colour{0,0,0};
+				return direct + Colour{ 0,0,0 };
 			}
 		}
 
 		return scene->background->evaluate(r.dir) * pathThroughput;
 	}
+
+	float powerHeuristic(float a, float b)
+	{
+		float a2 = a * a;
+		float b2 = b * b;
+		return a2 / (a2 + b2);
+	}
+
+	Colour pathTraceMIS(Ray r, Sampler* sampler)
+	{
+		Colour pathThroughput = { 1,1,1 };
+		int depth = 0;
+		Colour result = { 0,0,0 };
+
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+
+		if (shadingData.t == FLT_MAX)
+			return scene->background->evaluate(r.dir);
+
+		if (shadingData.bsdf->isLight())
+			return shadingData.bsdf->emit(shadingData, shadingData.wo);
+
+
+		while (true)
+		{
+			if (!shadingData.bsdf->isPureSpecular())
+				result = result + computeDirectMIS(shadingData, sampler) * pathThroughput;
+
+			Colour bsdfColour;
+			float rayPdf;
+			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
+			r.init(shadingData.x + rayDir * EPSILON, rayDir);
+
+			float cosOverPdf = fabsf(rayDir.dot(shadingData.sNormal)) / rayPdf;
+			pathThroughput *= bsdfColour * cosOverPdf;
+
+			float q = depth > 4 ? std::min(pathThroughput.Lum(), 0.9f) : 1.0f;
+			if (sampler->next() < q)
+			{
+				pathThroughput = pathThroughput / q;
+
+				intersection = scene->traverse(r);
+				ShadingData newShadingData = scene->calculateShadingData(intersection, r);
+
+				if (newShadingData.t == FLT_MAX)
+				{
+/*					result = result + scene->background->evaluate(rayDir) * pathThroughput;
+					break;*/
+					result = result + scene->background->evaluate(rayDir)
+									* powerHeuristic(rayPdf,
+													scene->pdfLightWeightedDistance(shadingData, r, true))
+									* pathThroughput;
+					break;
+				}
+				else if (newShadingData.bsdf->isLight())
+				{
+/*					if (shadingData.bsdf->isPureSpecular())
+						result = result + newShadingData.bsdf->emit(newShadingData, newShadingData.wo) * pathThroughput;
+					break;*/
+					result = result + newShadingData.bsdf->emit(newShadingData, newShadingData.wo)
+									* powerHeuristic(rayPdf,
+													 scene->pdfLightWeightedDistance(shadingData, r, false))
+									* pathThroughput;
+					break;
+				}
+				else
+				{
+					depth++;
+					shadingData = newShadingData;
+				}
+			}
+			else
+			{
+				break;
+			}
+		}
+
+		return result;
+	}
+
 	Colour direct(Ray& r, Sampler* sampler)
 	{
 		IntersectionData intersection = scene->traverse(r);
@@ -320,7 +400,7 @@ public:
 			if (fast)
 				col = col + direct(ray, sampler);
 			else
-				col = col + pathTraceWrapper(ray, sampler);
+				col = col + pathTraceMIS(ray, sampler);
 		}
 		if (fast)
 			(*film)(x, y) = (*film)(x, y) + col;
