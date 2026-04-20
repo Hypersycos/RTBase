@@ -99,6 +99,60 @@ public:
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
 
+	Colour computeDirectMIS(ShadingData shadingData, Sampler* sampler, float& pmf, float& pdf, Vec3& wi, Light*& light)
+	{
+		// Is surface is specular we cannot computing direct lighting
+		if (shadingData.bsdf->isPureSpecular() == false)
+		{
+			//Light* light = scene->sampleLight(sampler, pmf);
+			light = scene->sampleLightWeightedDistance(sampler, shadingData.x, pmf);
+			if (light->isArea())
+			{
+				Colour emittedColour;
+
+				Vec3 lightPoint = light->sample(shadingData, sampler, emittedColour, pdf);
+				Vec3 surfaceToLight = lightPoint - shadingData.x;
+				wi = surfaceToLight.normalize();
+
+				float cosTheta = wi.dot(shadingData.sNormal);
+				if (cosTheta > 0)
+				{
+					float cosThetaPrime = -(wi.dot(light->normal(shadingData, wi)));
+					if (cosThetaPrime > 0)
+					{
+						if (scene->visible(shadingData.x, lightPoint))
+						{
+							float geoTerm = cosTheta * cosThetaPrime / (surfaceToLight.lengthSq());
+							Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
+							return emittedColour * bsdfColour * geoTerm;
+						}
+					}
+				}
+			}
+			else
+			{
+				Vec3 wi = light->sampleDirectionFromLight(sampler, pdf);
+
+				float cosTheta = wi.dot(shadingData.sNormal);
+				if (cosTheta > 0)
+				{
+					float t;
+					Ray lightRay = Ray(shadingData.x, wi);
+					scene->bounds.rayAABB(lightRay, t);
+					Vec3 oobPoint = lightRay.at(t + 1);
+					if (scene->visible(shadingData.x, oobPoint))
+					{
+						float geoTerm = cosTheta;
+						Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
+						return light->evaluate(wi) * bsdfColour * geoTerm / (pdf * pmf);
+					}
+				}
+			}
+		}
+		// Compute direct lighting here
+		return Colour(0.0f, 0.0f, 0.0f);
+	}
+
 	Colour pathTraceWrapper(Ray& r, Sampler* sampler)
 	{
 		Colour pathThroughput = { 1,1,1 };
@@ -153,7 +207,11 @@ public:
 				return wasSpecular ? shadingData.bsdf->emit(shadingData, shadingData.wo) * pathThroughput : Colour{0,0,0};
 			}
 
-			Colour direct = pathThroughput * computeDirect(shadingData, sampler);
+			float directPmf;
+			float directPdf;
+			Vec3 directDir;
+			Light* light;
+			Colour direct = pathThroughput * computeDirectMIS(shadingData, sampler, directPmf, directPdf, directDir, light);
 
 			Ray indirect;
 			Colour bsdfColour;
@@ -161,7 +219,16 @@ public:
 			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
 			indirect.init(shadingData.x + rayDir * EPSILON, rayDir);
 
-			float cosOverPdf = fabsf(rayDir.dot(shadingData.sNormal)) / rayPdf;
+/*			float directBsdfPdf = shadingData.bsdf->PDF(shadingData, directDir);
+			float indirectLightPdf = light->PDF(shadingData, rayDir) * directPmf;
+
+			float w1 = directPmf * directPdf / (directPmf * directPdf + directBsdfPdf);*/
+
+			float wt = (directPmf * directPdf + rayPdf);
+			float w1 = directPmf * directPdf / wt;
+			float w2 = 1 - w1;
+
+			float cosOverPdf = fabsf(rayDir.dot(shadingData.sNormal)) / wt;
 
 			pathThroughput *= bsdfColour * cosOverPdf;
 
@@ -169,11 +236,11 @@ public:
 			if (sampler->next() < q)
 			{
 				pathThroughput = pathThroughput / q;
-				return direct + pathTrace(indirect, pathThroughput, depth + 1, sampler, shadingData.bsdf->isPureSpecular());
+				return direct * w1 / wt + pathTrace(indirect, pathThroughput, depth + 1, sampler, shadingData.bsdf->isPureSpecular()) * w2;
 			}
 			else
 			{
-				return direct + Colour{ 0,0,0 };
+				return direct / (directPmf * directPdf) + Colour{0,0,0};
 			}
 		}
 
