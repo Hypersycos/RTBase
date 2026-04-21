@@ -268,18 +268,33 @@ public:
 		if (shadingData.bsdf->isLight())
 			return shadingData.bsdf->emit(shadingData, shadingData.wo);
 
+		bool wasSpecular = false;
+
 
 		while (true)
 		{
 			if (!shadingData.bsdf->isPureSpecular())
-				result = result + computeDirectMIS(shadingData, sampler) * pathThroughput;
+			{
+				if (wasSpecular)
+				{
+					result = result + computeDirect(shadingData, sampler) * pathThroughput;
+				}
+				else
+				{
+					result = result + computeDirectMIS(shadingData, sampler) * pathThroughput;
+				}
+				wasSpecular = false;
+			}
+			else
+				wasSpecular = true;
 
 			Colour bsdfColour;
 			float rayPdf;
 			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
 			r.init(shadingData.x + rayDir * EPSILON, rayDir);
 
-			float cosOverPdf = fabsf(rayDir.dot(shadingData.sNormal)) / rayPdf;
+			float cosTheta = fabsf(rayDir.dot(shadingData.sNormal));
+			float cosOverPdf = cosTheta / rayPdf;
 			pathThroughput *= bsdfColour * cosOverPdf;
 
 			float q = depth > 4 ? std::min(pathThroughput.Lum(), 0.9f) : 1.0f;
@@ -292,23 +307,32 @@ public:
 
 				if (newShadingData.t == FLT_MAX)
 				{
-/*					result = result + scene->background->evaluate(rayDir) * pathThroughput;
-					break;*/
-					result = result + scene->background->evaluate(rayDir)
-									* powerHeuristic(rayPdf,
-													scene->pdfLightWeightedDistance(shadingData, r, true))
-									* pathThroughput;
+					if (wasSpecular)
+					{
+						result = result + scene->background->evaluate(rayDir) * pathThroughput;
+					}
+					else
+					{
+						result = result + scene->background->evaluate(rayDir)
+										* powerHeuristic(rayPdf,
+														scene->pdfLightWeightedDistance(shadingData, r, true))
+										* pathThroughput;
+					}
 					break;
 				}
 				else if (newShadingData.bsdf->isLight())
 				{
-/*					if (shadingData.bsdf->isPureSpecular())
+					if (wasSpecular)
+					{
 						result = result + newShadingData.bsdf->emit(newShadingData, newShadingData.wo) * pathThroughput;
-					break;*/
-					result = result + newShadingData.bsdf->emit(newShadingData, newShadingData.wo)
-									* powerHeuristic(rayPdf,
-													 scene->pdfLightWeightedDistance(shadingData, r, false))
-									* pathThroughput;
+					}
+					else
+					{
+						result = result + newShadingData.bsdf->emit(newShadingData, newShadingData.wo)
+										* powerHeuristic(rayPdf,
+														 scene->pdfLightWeightedDistance(shadingData, r, false))
+										* pathThroughput;
+					}
 					break;
 				}
 				else

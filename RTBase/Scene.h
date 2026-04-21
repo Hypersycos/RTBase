@@ -165,8 +165,8 @@ public:
 			}
 		}
 
-		if (currentTarget > lights.size())
-			currentTarget = lights.size();
+		if (currentTarget >= lights.size())
+			currentTarget = lights.size() - 1;
 
 		pmf = weights[currentTarget] / sum;
 		return lights[currentTarget];
@@ -177,7 +177,6 @@ public:
 		if (lightPMF == 0 || lights.size() > 100)
 			return 1.0f / lights.size();
 
-		int target;
 		float targetWeight = 0;
 		float targetPdf = 0;
 		float sum = 0;
@@ -192,7 +191,6 @@ public:
 				float t, u, v;
 				if (areaLight->triangle->rayIntersect(r, t, u, v))
 				{
-					target = i;
 					targetWeight = weight;
 					targetPdf = lights[i]->PDF(data, r.dir);
 				}
@@ -202,7 +200,6 @@ public:
 				weight = lights[i]->totalIntegratedPower();
 				if (environment)
 				{
-					target = i;
 					targetWeight = weight;
 					targetPdf = lights[i]->PDF(data, r.dir);
 				}
