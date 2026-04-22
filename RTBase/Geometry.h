@@ -524,6 +524,7 @@ public:
 		stats(leafcount, nodecount);
 		std::cout << nodecount << " nodes, " << leafcount << " leaves." << std::endl;
 		std::cout << (float)nodecount / triangles.size() << " nodes per tri, " << (float)leafcount / triangles.size() << " leaves per tri" << std::endl;
+		//print();
 	}
 
 	void print()

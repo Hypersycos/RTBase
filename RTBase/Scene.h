@@ -114,7 +114,7 @@ public:
 	{
 		static float PMF = 1.0f / lights.size();
 		pmf = PMF;
-		return lights[std::min<unsigned int>(lights.size(), std::floor(sampler->next() * lights.size()))];
+		return lights[std::min<unsigned int>(lights.size() - 1, std::floor(sampler->next() * lights.size()))];
 	}
 
 	Light* sampleLightWeighted(Sampler* sampler, float& pmf)

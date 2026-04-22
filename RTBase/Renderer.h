@@ -360,6 +360,21 @@ public:
 			{
 				return shadingData.bsdf->emit(shadingData, shadingData.wo);
 			}
+			return computeDirect(shadingData, sampler);
+		}
+		return scene->background->evaluate(r.dir);
+	}
+
+	Colour approxTrace(Ray& r, Sampler* sampler)
+	{
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+		if (shadingData.t < FLT_MAX)
+		{
+			if (shadingData.bsdf->isLight())
+			{
+				return shadingData.bsdf->emit(shadingData, shadingData.wo);
+			}
 			else if (shadingData.bsdf->isPureSpecular())
 			{
 				Colour pt{ 1,1,1 };
@@ -369,6 +384,7 @@ public:
 		}
 		return scene->background->evaluate(r.dir);
 	}
+
 	Colour albedo(Ray& r)
 	{
 		IntersectionData intersection = scene->traverse(r);
@@ -417,12 +433,12 @@ public:
 		float px = x + 0.5f;
 		float py = y + 0.5f;
 		Ray ray = scene->camera.generateRay(px, py);
-		//Colour col = viewNormals(ray);
+		//Colour col = direct(ray, sampler);
 		Colour col{};
 		for (int i = 0; i < SAMPLESPP; i++)
 		{
 			if (fast)
-				col = col + direct(ray, sampler);
+				col = col + approxTrace(ray, sampler);
 			else
 				col = col + pathTraceMIS(ray, sampler);
 		}
