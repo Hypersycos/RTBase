@@ -79,7 +79,7 @@ int main(int argc, char *argv[])
 	bool running = true;
 	GamesEngineeringBase::Timer timer;
 
-	bool fast = true;
+	bool fast = false;
 	float fastDebounce = 0;
 	int xL = 0;
 	int xR = scene->camera.width;
@@ -150,21 +150,37 @@ int main(int argc, char *argv[])
 		if (canvas.keyPressed('J'))
 		{
 			xR -= 8 * (canvas.keyPressed(VK_SHIFT) ? -1 : 1);
+			if (xR - 16 < xL)
+				xR = xL + 16;
+			if (xR > rt.film->width)
+				xR = rt.film->width;
 			rt.clear();
 		}
 		if (canvas.keyPressed('L'))
 		{
 			xL += 8 * (canvas.keyPressed(VK_SHIFT) ? -1 : 1);
+			if (xL + 16 > xR)
+				xL = xR - 16;
+			if (xL < 0)
+				xL = 0;
 			rt.clear();
 		}
 		if (canvas.keyPressed('I'))
 		{
 			yB -= 8 * (canvas.keyPressed(VK_SHIFT) ? -1 : 1);
+			if (yB - 16 < yT)
+				yB = yT + 16;
+			if (yB > rt.film->width)
+				yB = rt.film->width;
 			rt.clear();
 		}
 		if (canvas.keyPressed('K'))
 		{
 			yT += 8 * (canvas.keyPressed(VK_SHIFT) ? -1 : 1);
+			if (yT + 16 > yB)
+				yT = yB - 16;
+			if (xL < 0)
+				yT = 0;
 			rt.clear();
 		}
 

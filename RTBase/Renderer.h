@@ -39,7 +39,7 @@ public:
 		scene = _scene;
 		canvas = _canvas;
 		film = new Film();
-		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new MitchellNetravaliFilter());
+		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new BoxFilter());
 
 		maxTiles = std::ceil(film->width / (float)tileSize) * std::ceil(film->height / (float)tileSize);
 		samplers = new MTRandom[threads.size()];
@@ -430,8 +430,8 @@ public:
 
 	void renderPixel(unsigned int x, unsigned int y, Sampler* sampler, bool fast)
 	{
-		float px = x + 0.5f;
-		float py = y + 0.5f;
+		float px = x + sampler->next();
+		float py = y + sampler->next();
 		Ray ray = scene->camera.generateRay(px, py);
 		//Colour col = direct(ray, sampler);
 		Colour col{};
@@ -442,6 +442,10 @@ public:
 			else
 				col = col + pathTraceMIS(ray, sampler);
 		}
+
+		if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b) || col.r <= 0 || col.g <= 0 || col.b <= 0)
+			return;
+
 		if (fast)
 			(*film)(x, y) = (*film)(x, y) + col;
 		else

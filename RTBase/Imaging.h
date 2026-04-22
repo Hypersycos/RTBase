@@ -281,6 +281,9 @@ public:
 			}
 		}
 
+		if (total <= 0)
+			return;
+
 		for (int i = 0; i < indices.size(); i++)
 		{
 			film[indices[i]] = film[indices[i]] + (L * filterWeights[i] / total);
@@ -331,9 +334,16 @@ public:
 		Colour c = filmC / SPP;
 
 		float L_in = c.Lum();
-		float L_out = tonemapPassthrough(c, L_in, exposure);
 
-		float scalar = L_in == 0 ? 0 : L_out / L_in;
+		if (L_in <= 0)
+		{
+			r = b = g = 0;
+			return;
+		}
+
+		float L_out = tonemapReinhard(c, L_in, exposure);
+
+		float scalar = L_out / L_in;
 
 		c.r = std::min(1.0f, powf(c.r * scalar, 1.0f / 2.2f));
 		c.g = std::min(1.0f, powf(c.g * scalar, 1.0f / 2.2f));
