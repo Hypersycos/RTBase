@@ -440,11 +440,24 @@ public:
 			if (fast)
 				col = col + approxTrace(ray, sampler);
 			else
+#ifdef MultipleImportanceSampling
 				col = col + pathTraceMIS(ray, sampler);
+#else
+				col = col + pathTraceWrapper(ray, sampler);
+#endif
 		}
 
-		if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b) || col.r <= 0 || col.g <= 0 || col.b <= 0)
+		if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
+		{
+			std::cout << "NaN!" << std::endl;
 			return;
+		}
+
+		if (col.r < 0 || col.g < 0 || col.b < 0)
+		{
+			std::cout << "Negative colour!" << std::endl;
+			return;
+		}
 
 		if (fast)
 			(*film)(x, y) = (*film)(x, y) + col;

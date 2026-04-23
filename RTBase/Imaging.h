@@ -8,6 +8,7 @@
 #include "stb_image_write.h"
 
 #define ADDITIVESAMPLES
+#define MultipleImportanceSampling
 
 #if defined(NDEBUG)
 #define SAMPLESPP 1

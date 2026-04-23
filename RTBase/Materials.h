@@ -202,7 +202,7 @@ public:
 };
 
 
-class ConductorBSDF : public DiffuseBSDF
+class ConductorBSDF : public BSDF
 {
 public:
 	Texture* albedo;
@@ -210,7 +210,7 @@ public:
 	Colour k;
 	float alpha;
 	ConductorBSDF() = default;
-	ConductorBSDF(Texture* _albedo, Colour _eta, Colour _k, float roughness) : DiffuseBSDF(_albedo)
+	ConductorBSDF(Texture* _albedo, Colour _eta, Colour _k, float roughness)
 	{
 		albedo = _albedo;
 		eta = _eta;
@@ -242,11 +242,17 @@ public:
 		Vec3 wi = -woLocal + wm * 2 * wm.dot(woLocal);
 
 		float D = ShadingHelper::Dggx(wm, alpha);
-		float G = ShadingHelper::Gggx(wi, woLocal, alpha);
-		Colour fresnel = ShadingHelper::fresnelConductor(woLocal.z, albedo->sample(shadingData.tu, shadingData.tv), k);
-		reflectedColour = fresnel * (G * D / (4 * wi.z * woLocal.z));
 
 		pdf = D * wm.z / (4 * woLocal.dot(wm));
+		if (wi.z <= 0)
+		{
+			reflectedColour = { 0,0,0 };
+			return shadingData.sNormal;
+		}
+
+		float G = ShadingHelper::Gggx(wi, woLocal, alpha);
+		Colour fresnel = ShadingHelper::fresnelConductor(woLocal.z, eta, k);
+		reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) * fresnel * (G * D / (4 * wi.z * woLocal.z));
 
 		return shadingData.frame.toWorld(wi);
 	}
@@ -264,8 +270,8 @@ public:
 
 		float D = ShadingHelper::Dggx(h, alpha);
 		float G = ShadingHelper::Gggx(wiLocal, woLocal, alpha);
-		Colour fresnel = ShadingHelper::fresnelConductor(woLocal.z, albedo->sample(shadingData.tu, shadingData.tv), k);
-		return fresnel * (G * D / (4 * wiLocal.z * woLocal.z));
+		Colour fresnel = ShadingHelper::fresnelConductor(woLocal.z, eta, k);
+		return albedo->sample(shadingData.tu, shadingData.tv) * fresnel * (G * D / (4 * wiLocal.z * woLocal.z));
 	}
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
@@ -322,10 +328,9 @@ public:
 		{ //reflect
 			pdf = fresnel;
 			Vec3 wr = -rayDir;
-			wr.x = -wr.x;
-			wr.y = -wr.y;
+			wr.z = -wr.z;
 
-			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / wr.z * fresnel;
+			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / fabsf(wr.z) * fresnel;
 			return shadingData.frame.toWorld(wr);
 		}
 		else
@@ -452,15 +457,43 @@ public:
 	{
 		// Replace this with OrenNayar sampling code
 		Vec3 wi = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
-		pdf = wi.z / M_PI;
-		reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / M_PI;
-		wi = shadingData.frame.toWorld(wi);
-		return wi;
+		Vec3 wo = shadingData.frame.toLocal(shadingData.wo);
+		pdf = SamplingDistributions::cosineHemispherePDF(wi);
+
+		float sigma2 = sigma * sigma;
+		float A = 1 - sigma2 / (2 * (sigma2 + 0.33f));
+		float B = 0.45 * sigma2 / (sigma2 + 0.09);
+
+		float thetaI = SphericalCoordinates::sphericalTheta(wi);
+		float thetaO = SphericalCoordinates::sphericalTheta(wo);
+		float phiI = SphericalCoordinates::sphericalPhi(wi);
+		float phiO = SphericalCoordinates::sphericalPhi(wo);
+
+		float C = cosf(phiI - phiO) * sinf(std::max(thetaI, thetaO)) * tanf(std::min(thetaI, thetaO));
+
+		reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / M_PI * (A + B * std::max(0.0f, C));
+
+		return shadingData.frame.toWorld(wi);
 	}
 	Colour evaluate(const ShadingData& shadingData, const Vec3& wi)
 	{
 		// Replace this with OrenNayar evaluation code
-		return albedo->sample(shadingData.tu, shadingData.tv) / M_PI;
+
+		Vec3 wo = shadingData.frame.toLocal(shadingData.wo);
+		Vec3 wiLocal = shadingData.frame.toLocal(wi);
+
+		float sigma2 = sigma * sigma;
+		float A = 1 - sigma2 / (2 * (sigma2 + 0.33f));
+		float B = 0.45 * sigma2 / (sigma2 + 0.09);
+
+		float thetaI = SphericalCoordinates::sphericalTheta(wiLocal);
+		float thetaO = SphericalCoordinates::sphericalTheta(wo);
+		float phiI = SphericalCoordinates::sphericalPhi(wiLocal);
+		float phiO = SphericalCoordinates::sphericalPhi(wo);
+
+		float C = cosf(phiI - phiO) * sinf(std::max(thetaI, thetaO)) * tanf(std::min(thetaI, thetaO));
+
+		return albedo->sample(shadingData.tu, shadingData.tv) / M_PI * (A + B * std::max(0.0f, C));
 	}
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
@@ -513,12 +546,18 @@ public:
 		float theta = std::acosf(std::powf(sampler->next(), 1 / (e + 1)));
 		float phi = 2 * M_PI * sampler->next();
 		Vec3 wi = SphericalCoordinates::sphericalToWorld(theta, phi);
-		wi = wrFrame.toWorld(wi);
 
-		float maxCalc = M_1_PI * std::powf(std::max(0.0f, wr.dot(wi)), e);
+		float maxCalc = M_1_PI * std::powf(std::max(0.0f, wi.z), e);
 		pdf = (e + 1) * maxCalc;
 
-		reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) * (e + 2) / 2 * maxCalc;
+		wi = wrFrame.toWorld(wi);
+		if (wi.z <= 0)
+		{
+			reflectedColour = { 0,0,0 };
+			return shadingData.sNormal;
+		}
+
+		reflectedColour = albedo->sample(shadingData.tu, shadingData.tv)* (e + 2) / 2 * maxCalc;
 
 		return shadingData.frame.toWorld(wi);
 	}

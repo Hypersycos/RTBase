@@ -162,7 +162,13 @@ public:
 	}
 	Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf)
 	{
-		float weight = sampler->next();
+		// Assignment: Update this code to importance sampling lighting based on luminance of each pixel
+		Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
+		pdf = SamplingDistributions::uniformSpherePDF(wi);
+		reflectedColour = evaluate(wi);
+		return wi;
+
+/*		float weight = sampler->next();
 		int i = 0;
 		int j = 0;
 		while (j < rowWeights.size() && rowWeights[j] < weight)
@@ -186,12 +192,6 @@ public:
 		float theta = 2 * M_PI * u;
 		Vec3 wi = SphericalCoordinates::sphericalToWorld(theta, M_PI * v);
 		//pdf *= std::sinf(theta);
-		return wi;
-
-		// Assignment: Update this code to importance sampling lighting based on luminance of each pixel
-/*		Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
-		pdf = SamplingDistributions::uniformSpherePDF(wi);
-		reflectedColour = evaluate(wi);
 		return wi;*/
 	}
 	Colour evaluate(const Vec3& wi)
@@ -204,6 +204,10 @@ public:
 	}
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
+
+		// Assignment: Update this code to return the correct PDF of luminance weighted importance sampling
+		return SamplingDistributions::uniformSpherePDF(wi);
+
 		float u = atan2f(wi.z, wi.x);
 		u = (u < 0.0f) ? u + (2.0f * M_PI) : u;
 		u = u / (2.0f * M_PI);
@@ -212,9 +216,6 @@ public:
 		int x = std::floor(u * env->width);
 		int y = std::floor(v * env->width);
 		return rows[y][x];
-
-		// Assignment: Update this code to return the correct PDF of luminance weighted importance sampling
-		return SamplingDistributions::uniformSpherePDF(wi);
 	}
 	bool isArea()
 	{
@@ -249,7 +250,11 @@ public:
 	}
 	Vec3 sampleDirectionFromLight(Sampler* sampler, float& pdf)
 	{
-		float weight = sampler->next();
+		// Replace this tabulated sampling of environment maps
+		Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
+		pdf = SamplingDistributions::uniformSpherePDF(wi);
+		return wi;
+/*		float weight = sampler->next();
 		int i = 0;
 		int j = 0;
 		while (j < rowWeights.size() && rowWeights[j] < weight)
@@ -272,11 +277,6 @@ public:
 		float theta = 2 * M_PI * u;
 		Vec3 wi = SphericalCoordinates::sphericalToWorld(theta, M_PI * v);
 		//pdf *= std::sinf(theta);
-		return wi;
-
-		// Replace this tabulated sampling of environment maps
-/*		Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
-		pdf = SamplingDistributions::uniformSpherePDF(wi);
 		return wi;*/
 	}
 };
