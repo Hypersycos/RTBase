@@ -39,7 +39,7 @@ public:
 		scene = _scene;
 		canvas = _canvas;
 		film = new Film();
-		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new BoxFilter());
+		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new GaussianFilter(2,2));
 
 		maxTiles = std::ceil(film->width / (float)tileSize) * std::ceil(film->height / (float)tileSize);
 		samplers = new MTRandom[threads.size()];

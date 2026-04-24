@@ -98,6 +98,8 @@ public:
 	{
 		float alpha2 = alpha * alpha;
 		float cosT = h.z;
+		if (h.z < 0)
+			return 0;
 		float denom = cosT * cosT * (alpha2 - 1) + 1;
 		return alpha2 / (M_PI * denom * denom);
 	}
@@ -404,7 +406,11 @@ public:
 	}
 };
 
+#ifdef DielectricImpl
 class DielectricBSDF : public BSDF
+#else
+class DielectricBSDF : public DiffuseBSDF
+#endif
 {
 public:
 	Texture* albedo;
@@ -412,6 +418,9 @@ public:
 	float extIOR;
 	float alpha;
 	GlassBSDF* glass;
+#ifdef DielecNoTransmit
+	DiffuseBSDF* diffuse;
+#endif
 	DielectricBSDF() = default;
 	DielectricBSDF(Texture* _albedo, float _intIOR, float _extIOR, float roughness)
 	{
@@ -419,9 +428,13 @@ public:
 		intIOR = _intIOR;
 		extIOR = _extIOR;
 		alpha = 1.62142f * sqrtf(roughness);
+#ifdef DielecNoTransmit
+		diffuse = new DiffuseBSDF(_albedo);
+#endif
 		if (alpha < EPSILON)
 			glass = new GlassBSDF(_albedo, _intIOR, _extIOR);
 	}
+#ifdef DielectricImpl
 	Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf)
 	{
 		if (alpha < EPSILON)
@@ -429,79 +442,162 @@ public:
 			return glass->sample(shadingData, sampler, reflectedColour, pdf);
 		}
 
-		Vec3 rayDir = shadingData.frame.toLocal(-shadingData.wo);
-		bool entering = rayDir.z < 0;
+		Vec3 wo = shadingData.frame.toLocal(shadingData.wo);
+
+		Vec3 wh = Vec3(alpha * wo.x, alpha * wo.y, wo.z).normalize();
+		if (wh.z < 0)
+			wh = -wh;
+
+		Vec3 T1 = (wh.z < 0.99999f) ? wh.cross(Vec3(0, 0, 1)).normalize() : Vec3(1, 0, 0);
+		Vec3 T2 = wh.cross(T1);
+		float r = sqrtf(sampler->next());
+		float theta = 2 * M_PI * sampler->next();
+		float px = r * std::cosf(theta);
+		float py = r * std::sinf(theta);
+
+		float h = std::sqrt(1 - px * px);
+		py = std::lerp((1 + wh.z) / 2, h, py);
+
+		float pz = sqrtf(std::max(0.0f, 1 - px * py));
+		Vec3 nh = T1 * px + T2 * py + wh * pz;
+
+		Vec3 wm = Vec3(alpha * nh.x, alpha * nh.y, std::max(1e-6f, nh.z)).normalize();
+
+		float cosTheta = wm.dot(wo);
+
+		bool entering = cosTheta >= 0;
+
+		cosTheta = fabsf(cosTheta);
+
 		float outerIndex = entering ? extIOR : intIOR;
 		float innerIndex = entering ? intIOR : extIOR;
 
-		float e1 = sampler->next();
-		float e2 = sampler->next();
-		float theta = std::acosf(std::sqrtf((1 - e1) / (e1 * (alpha * alpha - 1) + 1)));
-		float phi = 2 * M_PI * e2;
+		float n = innerIndex / outerIndex;
 
-		Vec3 wm = SphericalCoordinates::sphericalToWorld(theta, phi);
+		float fresnel = ShadingHelper::fresnelDielectric(cosTheta, innerIndex, outerIndex);
 
-		float fresnel = ShadingHelper::fresnelDielectric(wm.dot(-rayDir), innerIndex, outerIndex);
+		Colour passthrough = { 1,1,1 };
+		if (entering)
+			passthrough = { 1,1,1 };
+#ifndef DielecNoTransmit
+		else
+		{
+			float thickness = 0.1;
+			Colour sigma = albedo->sample(shadingData.tu, shadingData.tv);
+			sigma.r = -std::log(std::max(sigma.r, 0.001f)) / thickness;
+			sigma.g = -std::log(std::max(sigma.g, 0.001f)) / thickness;
+			sigma.b = -std::log(std::max(sigma.b, 0.001f)) / thickness;
+
+			passthrough.r = std::powf(M_E, -sigma.r * shadingData.t);
+			passthrough.g = std::powf(M_E, -sigma.g * shadingData.t);
+			passthrough.b = std::powf(M_E, -sigma.b * shadingData.t);
+		}
+#endif
 
 		if (fresnel == -1)
 			fresnel = 1;
 
 		if (sampler->next() <= fresnel)
 		{ //reflect
-			Vec3 wi;
-			wi = rayDir + wm * 2 * wm.dot(-rayDir);
-
-			float D = ShadingHelper::Dggx(wm, alpha);
-
-			pdf = D * wm.z / (4 * fabsf(rayDir.dot(wm))) * fresnel;
-			if (wi.z <= 0)
+			Vec3 wi = -wo + wm * wo.dot(wm) * 2;
+			if (wi.z * wo.z < 0)
 			{
 				reflectedColour = { 0,0,0 };
 				return shadingData.sNormal;
 			}
 
-			float G = ShadingHelper::Gggx(wi, -rayDir, alpha);
-			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) * fresnel * (G * D / (4 * fabsf(wi.z) * fabsf(rayDir.z)));
+			//float D = ShadingHelper::Dggx(wm, alpha);
+			float D;
+			float DTan2CosTheta = wm.z * wm.z;
+			if (DTan2CosTheta < 1)
+			{
+				float DTan2SinTheta = 1 - DTan2CosTheta;
+				float DTan2Theta = DTan2SinTheta / DTan2CosTheta;
+				float cos4Theta = DTan2CosTheta * DTan2CosTheta;
+				float sinTheta = std::sqrt(DTan2SinTheta);
+				float cosPhi = (sinTheta == 0) ? 1 : std::clamp<float>(wm.x / sinTheta, -1, 1);
+				float sinPhi = (sinTheta == 0) ? 0 : std::clamp<float>(wm.y / sinTheta, -1, 1);
+				float e = DTan2Theta * ((cosPhi * cosPhi / alpha) + (sinPhi * sinPhi / alpha));
+				D = 1 / (M_PI * alpha * alpha * cos4Theta * (1 + e) * (1 + e));
+			}
+			else
+				D = 0;
+
+			float G1 = 1 / (1 + ShadingHelper::lambdaGGX(wo, alpha));
+			float D2 = G1 / fabsf(wo.z) * D * cosTheta;
+
+			pdf = D2 / (4 * cosTheta) * fresnel;
+
+			float G = ShadingHelper::Gggx(wi, wo, alpha);
+			reflectedColour = passthrough * fresnel * D * G / (4 * wi.z * wo.z);
 
 			return shadingData.frame.toWorld(wi);
 		}
 		else
 		{ //refract
-			Frame nFrame;
-			nFrame.fromVector(wm);
+#ifdef DielecNoTransmit
+			Vec3 wi = diffuse->sample(shadingData, sampler, reflectedColour, pdf);
+			pdf *= (1 - fresnel);
+			reflectedColour = reflectedColour * (1 - fresnel);
+			return wi;
+#else
+			if (!entering)
+				wm = -wm;
 
-			Vec3 nRayDir = nFrame.toLocal(-rayDir);
+			float sin2ThetaI = std::max(0.0f, 1 - cosTheta * cosTheta);
+			float sin2ThetaT = sin2ThetaI / (n * n);
 
-			float theta_in = SphericalCoordinates::sphericalTheta(nRayDir);
-			float phi_in = SphericalCoordinates::sphericalPhi(nRayDir);
-			float n = outerIndex / innerIndex;
-
-			float sin_theta_out = n * sinf(theta_in);
-
-			float theta_out = asinf(sin_theta_out);
-			float phi_out = phi_in + M_PI;
-
-			Vec3 wi = { sinf(theta_out) * cosf(phi_out), sinf(theta_out) * sinf(phi_out), -cosf(theta_out) * (entering ? 1 : -1) };
-			wi = nFrame.toWorld(wi);
-			float G = ShadingHelper::Gggx(wi, -rayDir, alpha);
-			float D = ShadingHelper::Dggx(wm, alpha);
-
-			float denom1 = (-wi.dot(wm) + (-rayDir).dot(wm) / n);
-			float denom2 = denom1 * denom1;
-
-			pdf = (1 - fresnel) * D * fabsf(rayDir.dot(wm)) / denom2;
-
-			if (nRayDir.z <= 0)
-			{
+			if (sin2ThetaT >= 1)
+			{ // total internal reflection somehow
 				reflectedColour = { 0,0,0 };
 				return shadingData.sNormal;
 			}
 
-			float numerator = (1 - fresnel) * D * G * -wi.dot(wm) * -rayDir.dot(wm);
-			float denominator = -wi.z * -rayDir.z * denom2;
+			float cosThetaT = sqrtf(1 - sin2ThetaT);
 
-			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) * numerator / denominator;
+			Vec3 wi = -wo / n + wm * (cosTheta / n - cosThetaT);
+
+			if (wi.z * wo.z > 0 || wi.z == 0)
+			{ //refract but still leaving material
+				reflectedColour = { 0,0,0 };
+				return shadingData.sNormal;
+			}
+
+			if (!entering)
+				wm = -wm;
+
+			float denom = wi.dot(wm) + wo.dot(wm) / n;
+			float denom2 = denom * denom;
+			float dwm_dwi = fabsf(wi.dot(wm)) / denom2;
+
+			//float D = ShadingHelper::Dggx(wm, alpha);
+			float D;
+			float DTan2CosTheta = wm.z * wm.z;
+			if (DTan2CosTheta < 1)
+			{
+				float DTan2SinTheta = 1 - DTan2CosTheta;
+				float DTan2Theta = DTan2SinTheta / DTan2CosTheta;
+				float cos4Theta = DTan2CosTheta * DTan2CosTheta;
+				float sinTheta = std::sqrt(DTan2SinTheta);
+				float cosPhi = (sinTheta == 0) ? 1 : std::clamp<float>(wm.x / sinTheta, -1, 1);
+				float sinPhi = (sinTheta == 0) ? 0 : std::clamp<float>(wm.y / sinTheta, -1, 1);
+				float e = DTan2Theta * ((cosPhi * cosPhi / alpha) + (sinPhi * sinPhi / alpha));
+				D = 1 / (M_PI * alpha * alpha * cos4Theta * (1 + e) * (1 + e));
+			}
+			else
+				D = 0;
+
+
+			float G1 = 1 / (1 + ShadingHelper::lambdaGGX(wo, alpha));
+			float D2 = G1 / fabsf(wo.z) * D * cosTheta;
+
+			pdf = D2 * dwm_dwi * (1 - fresnel);
+
+			float G = ShadingHelper::Gggx(wi, wo, alpha);
+			reflectedColour = passthrough * (1 - fresnel) * D * G * fabsf(wi.dot(wm) * wo.dot(wm) / (wi.z * wo.z * denom2));
+
 			return shadingData.frame.toWorld(wi);
+#endif
 		}
 	}
 	Colour evaluate(const ShadingData& shadingData, const Vec3& wi)
@@ -511,92 +607,177 @@ public:
 			return glass->evaluate(shadingData, wi);
 		}
 
-		Vec3 rayDir = shadingData.frame.toLocal(-shadingData.wo);
-		bool entering = rayDir.z < 0;
-
-		Vec3 wiLocal = shadingData.frame.toLocal(wi);
 		Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
+		Vec3 wiLocal = shadingData.frame.toLocal(wi);
 
-		bool reflect = wi.dot(shadingData.wo) > 0;
-		float outerIndex = entering ? extIOR : intIOR;
-		float innerIndex = entering ? intIOR : extIOR;
+		float cosThetaO = woLocal.z;
+		float cosThetaI = wiLocal.z;
+		bool reflect = cosThetaI * cosThetaO > 0;
+		float outerIndex = cosThetaO > 0 ? extIOR : intIOR;
+		float innerIndex = cosThetaO > 0 ? intIOR : extIOR;
 
-		float cosTheta = fabsf(rayDir.z);
-		float fresnel = ShadingHelper::fresnelDielectric(cosTheta, innerIndex, outerIndex);
+		float n = outerIndex / innerIndex;
 
+		Vec3 wm = wiLocal * n + woLocal;
+
+		if (cosThetaI == 0 || cosThetaO == 0 || wm.lengthSq() == 0)
+			return Colour{ 0,0,0 };
+
+		wm = wm.normalize();
+		if (wm.z < 0)
+			wm = -wm;
+
+		if (wm.dot(wiLocal) * cosThetaI < 0 || wm.dot(woLocal) * cosThetaO < 0)
+			return Colour{ 0,0,0 };
+
+		float fresnel = ShadingHelper::fresnelDielectric(fabsf(woLocal.dot(wm)), innerIndex, outerIndex);
 		if (fresnel == -1)
 			fresnel = 1;
-
 		if (reflect)
-		{
-			Vec3 wm = (wi + shadingData.wo).normalize();
-			float D = ShadingHelper::Dggx(wm, alpha);
-			if (wi.z <= 0)
+		{ //reflect
+			//float D = ShadingHelper::Dggx(wm, alpha);
+			float D;
+			float DTan2CosTheta = wm.z * wm.z;
+			if (DTan2CosTheta < 1)
 			{
-				return { 0,0,0 };
+				float DTan2SinTheta = 1 - DTan2CosTheta;
+				float DTan2Theta = DTan2SinTheta / DTan2CosTheta;
+				float cos4Theta = DTan2CosTheta * DTan2CosTheta;
+				float sinTheta = std::sqrt(DTan2SinTheta);
+				float cosPhi = (sinTheta == 0) ? 1 : std::clamp<float>(wm.x / sinTheta, -1, 1);
+				float sinPhi = (sinTheta == 0) ? 0 : std::clamp<float>(wm.y / sinTheta, -1, 1);
+				float e = DTan2Theta * ((cosPhi * cosPhi / alpha) + (sinPhi * sinPhi / alpha));
+				D = 1 / (M_PI * alpha * alpha * cos4Theta * (1 + e) * (1 + e));
 			}
-
-			float G = ShadingHelper::Gggx(wi, -rayDir, alpha);
-			return albedo->sample(shadingData.tu, shadingData.tv) * fresnel * (G * D / (4 * fabsf(wi.z) * fabsf(rayDir.z)));
+			else
+				D = 0;
+			float G = ShadingHelper::Gggx(wiLocal, woLocal, alpha);
+			if (fresnel * D * G / fabsf(4 * wiLocal.z * woLocal.z) <= 0)
+			{
+				std::cout << "alpha: " << alpha << std::endl;
+				std::cout << "cos2Theta" << DTan2CosTheta << std::endl;
+			}
+			Colour highlight = Colour{ 1,1,1 } * fresnel * D * G / fabsf(4 * wiLocal.z * woLocal.z);
+#ifdef DielecNoTransmit
+			Colour diffuseC = diffuse->evaluate(shadingData, wi);
+			return highlight + diffuseC * M_1_PI * (1 - fresnel);
+#else
+			return highlight;
+#endif;
 		}
 		else
-		{
-			float n = outerIndex / innerIndex;
-			Vec3 wm = (wi * n + shadingData.wo).normalize();
+		{ //refract
+			float denom = wiLocal.dot(wm) + woLocal.dot(wm) / n;
+			float denom2 = denom * denom;
 
-			float D = ShadingHelper::Dggx(wm, alpha);
-			float G = ShadingHelper::Gggx(wi, -rayDir, alpha);
-
-			float numerator = (1 - fresnel) * D * G * fabsf(wi.dot(wm)) * fabsf(rayDir.dot(wm));
-			float denom1 = (-wi.dot(wm) + (-rayDir).dot(wm) / n);
-			float denominator = fabsf(wi.z) * fabsf(rayDir.z) * denom1 * denom1;
-
-			return albedo->sample(shadingData.tu, shadingData.tv) * numerator / denominator;
+			//float D = ShadingHelper::Dggx(wm, alpha);
+			float D;
+			float DTan2CosTheta = wm.z * wm.z;
+			if (DTan2CosTheta < 1)
+			{
+				float DTan2SinTheta = 1 - DTan2CosTheta;
+				float DTan2Theta = DTan2SinTheta / DTan2CosTheta;
+				float cos4Theta = DTan2CosTheta * DTan2CosTheta;
+				float sinTheta = std::sqrt(DTan2SinTheta);
+				float cosPhi = (sinTheta == 0) ? 1 : std::clamp<float>(wm.x / sinTheta, -1, 1);
+				float sinPhi = (sinTheta == 0) ? 0 : std::clamp<float>(wm.y / sinTheta, -1, 1);
+				float e = DTan2Theta * ((cosPhi * cosPhi / alpha) + (sinPhi * sinPhi / alpha));
+				D = 1 / (M_PI * alpha * alpha * cos4Theta * (1 + e) * (1 + e));
+			}
+			else
+				D = 0;
+			float G = ShadingHelper::Gggx(wiLocal, woLocal, alpha);
+			return Colour{ 1,1,1 } * (1 - fresnel) * D * G * fabsf(wiLocal.dot(wm) * woLocal.dot(wm) / (wiLocal.z * woLocal.z * denom2));
 		}
+
 	}
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
 		if (alpha < EPSILON)
 			return 0;
 
-		Vec3 rayDir = shadingData.frame.toLocal(-shadingData.wo);
-		bool entering = rayDir.z < 0;
-
-		Vec3 wiLocal = shadingData.frame.toLocal(wi);
 		Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
+		Vec3 wiLocal = shadingData.frame.toLocal(wi);
 
-		bool reflect = wi.dot(shadingData.wo) > 0;
-		float outerIndex = entering ? extIOR : intIOR;
-		float innerIndex = entering ? intIOR : extIOR;
+		float cosThetaO = woLocal.z;
+		float cosThetaI = wiLocal.z;
+		bool reflect = cosThetaI * cosThetaO > 0;
+		float outerIndex = cosThetaO > 0 ? extIOR : intIOR;
+		float innerIndex = cosThetaO > 0 ? intIOR : extIOR;
 
-		float cosTheta = fabsf(rayDir.z);
-		float fresnel = ShadingHelper::fresnelDielectric(cosTheta, innerIndex, outerIndex);
+		float n = outerIndex / innerIndex;
 
+		Vec3 wm = wiLocal * n + woLocal;
+
+		if (cosThetaI == 0 || cosThetaO == 0 || wm.lengthSq() == 0)
+			return 0;
+
+		wm = wm.normalize();
+		if (wm.z < 0)
+			wm = -wm;
+
+		if (wm.dot(wiLocal) * cosThetaI < 0 || wm.dot(woLocal) * cosThetaO < 0)
+			return 0;
+
+		float fresnel = ShadingHelper::fresnelDielectric(fabsf(woLocal.dot(wm)), innerIndex, outerIndex);
 		if (fresnel == -1)
 			fresnel = 1;
-
 		if (reflect)
 		{
-			Vec3 wm = (wi + shadingData.wo).normalize();
-			float D = ShadingHelper::Dggx(wm, alpha);
-			return D * wm.z / (4 * fabsf(rayDir.dot(wm))) * fresnel;
+			//float D = ShadingHelper::Dggx(wm, alpha);
+			float D;
+			float DTan2CosTheta = wm.z * wm.z;
+			if (DTan2CosTheta < 1)
+			{
+				float DTan2SinTheta = 1 - DTan2CosTheta;
+				float DTan2Theta = DTan2SinTheta / DTan2CosTheta;
+				float cos4Theta = DTan2CosTheta * DTan2CosTheta;
+				float sinTheta = std::sqrt(DTan2SinTheta);
+				float cosPhi = (sinTheta == 0) ? 1 : std::clamp<float>(wm.x / sinTheta, -1, 1);
+				float sinPhi = (sinTheta == 0) ? 0 : std::clamp<float>(wm.y / sinTheta, -1, 1);
+				float e = DTan2Theta * ((cosPhi * cosPhi / alpha) + (sinPhi * sinPhi / alpha));
+				D = 1 / (M_PI * alpha * alpha * cos4Theta * (1 + e) * (1 + e));
+			}
+			else
+				D = 0;
+			float G1 = 1 / (1 + ShadingHelper::lambdaGGX(woLocal, alpha));
+			float D2 = G1 / fabsf(woLocal.z) * D * wm.dot(woLocal);
+
+#ifdef DielecNoTransmit
+			return D2 / (4 * fabsf(woLocal.dot(wm))) * fresnel + diffuse->PDF(shadingData, wi) * (1 - fresnel);
+#else
+			return D2 / (4 * fabsf(woLocal.dot(wm))) * fresnel;
+#endif
 		}
 		else
 		{
-			float n = outerIndex / innerIndex;
-			Vec3 wm = (wi * n + shadingData.wo).normalize();
+			float denom = wi.dot(wm) + woLocal.dot(wm) / n;
+			float denom2 = denom * denom;
+			float dwm_dwi = fabsf(wi.dot(wm) / denom2);
 
-			float D = ShadingHelper::Dggx(wm, alpha);
-			float G = ShadingHelper::Gggx(wi, -rayDir, alpha);
+			//float D = ShadingHelper::Dggx(wm, alpha);
+			float D;
+			float DTan2CosTheta = wm.z * wm.z;
+			if (DTan2CosTheta < 1)
+			{
+				float DTan2SinTheta = 1 - DTan2CosTheta;
+				float DTan2Theta = DTan2SinTheta / DTan2CosTheta;
+				float cos4Theta = DTan2CosTheta * DTan2CosTheta;
+				float sinTheta = std::sqrt(DTan2SinTheta);
+				float cosPhi = (sinTheta == 0) ? 1 : std::clamp<float>(wm.x / sinTheta, -1, 1);
+				float sinPhi = (sinTheta == 0) ? 0 : std::clamp<float>(wm.y / sinTheta, -1, 1);
+				float e = DTan2Theta * ((cosPhi * cosPhi / alpha) + (sinPhi * sinPhi / alpha));
+				D = 1 / (M_PI * alpha * alpha * cos4Theta * (1 + e) * (1 + e));
+			}
+			else
+				D = 0;
+			float G1 = 1 / (1 + ShadingHelper::lambdaGGX(woLocal, alpha));
+			float D2 = G1 / fabsf(woLocal.z) * D * fabsf(woLocal.dot(wm));
 
-			float numerator = (1 - fresnel) * D * G * fabsf(wi.dot(wm)) * fabsf(rayDir.dot(wm));
-
-			float denom1 = (-wi.dot(wm) + (-rayDir).dot(wm) / n);
-			float denom2 = denom1 * denom1;
-
-			return (1 - fresnel) * D * fabsf(rayDir.dot(wm)) / denom2;
+			return D2 * dwm_dwi * (1 - fresnel);
 		}
 	}
+#endif
 	bool isPureSpecular()
 	{
 		return alpha < EPSILON;
@@ -684,7 +865,13 @@ public:
 	}
 };
 
+#ifdef PlasticPhong
+class PlasticBSDF : public BSDF
+#elif defined(PlasticDielec) && defined(DielectricImpl)
+class PlasticBSDF : public DielectricBSDF
+#else
 class PlasticBSDF : public DiffuseBSDF
+#endif
 {
 public:
 	Texture* albedo;
@@ -692,7 +879,13 @@ public:
 	float extIOR;
 	float alpha;
 	PlasticBSDF() = default;
+#ifdef PlasticPhong
+	PlasticBSDF(Texture* _albedo, float _intIOR, float _extIOR, float roughness)
+#elif defined(PlasticDielec) && defined(DielectricImpl)
+	PlasticBSDF(Texture* _albedo, float _intIOR, float _extIOR, float roughness) : DielectricBSDF(_albedo, _intIOR, _extIOR, roughness)
+#else
 	PlasticBSDF(Texture* _albedo, float _intIOR, float _extIOR, float roughness) : DiffuseBSDF(_albedo)
+#endif
 	{
 		albedo = _albedo;
 		intIOR = _intIOR;
@@ -703,6 +896,7 @@ public:
 	{
 		return (2.0f / SQ(std::max(alpha, 0.001f))) - 2.0f;
 	}
+#ifdef PlasticPhong
 	Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf)
 	{
 /*		if (alpha < EPSILON)
@@ -831,6 +1025,7 @@ public:
 	{
 		return true;
 	}
+#endif
 	float mask(const ShadingData& shadingData)
 	{
 		return albedo->sampleAlpha(shadingData.tu, shadingData.tv);

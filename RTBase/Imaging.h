@@ -8,7 +8,11 @@
 #include "stb_image_write.h"
 
 #define ADDITIVESAMPLES
-//#define MultipleImportanceSampling
+#define DielectricImpl
+#define DielecNoTransmit
+#define PlasticDielec
+//#define PlasticPhong
+#define MultipleImportanceSampling
 #define CountTiles
 
 #if defined(NDEBUG)

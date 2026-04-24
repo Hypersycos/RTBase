@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 	// runTests()
 	
 	// Initialize default parameters
-	std::string sceneName = "scenes/MaterialsScene";
+	std::string sceneName = "scenes/staircase2";
 	//sceneName = "scenes/cornell-box";
 	std::string filename = "GI.hdr";
 	unsigned int SPP = 8192;
@@ -79,7 +79,7 @@ int main(int argc, char *argv[])
 	bool running = true;
 	GamesEngineeringBase::Timer timer;
 
-	bool fast = true;
+	bool fast = false;
 	float fastDebounce = 0;
 	int xL = 0;
 	int xR = scene->camera.width;
