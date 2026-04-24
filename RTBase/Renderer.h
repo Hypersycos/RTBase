@@ -268,25 +268,12 @@ public:
 		if (shadingData.bsdf->isLight())
 			return shadingData.bsdf->emit(shadingData, shadingData.wo);
 
-		bool wasSpecular = false;
-
 
 		while (true)
 		{
 			if (!shadingData.bsdf->isPureSpecular())
-			{
-				if (wasSpecular)
-				{
-					result = result + computeDirect(shadingData, sampler) * pathThroughput;
-				}
-				else
-				{
-					result = result + computeDirectMIS(shadingData, sampler) * pathThroughput;
-				}
-				wasSpecular = false;
-			}
-			else
-				wasSpecular = true;
+				result = result + computeDirectMIS(shadingData, sampler) * pathThroughput;
+
 
 			Colour bsdfColour;
 			float rayPdf;
@@ -307,32 +294,18 @@ public:
 
 				if (newShadingData.t == FLT_MAX)
 				{
-					if (wasSpecular)
-					{
-						result = result + scene->background->evaluate(rayDir) * pathThroughput;
-					}
-					else
-					{
-						result = result + scene->background->evaluate(rayDir)
-										* powerHeuristic(rayPdf,
-														scene->pdfLightWeightedDistance(shadingData, r, true))
-										* pathThroughput;
-					}
+					result = result + scene->background->evaluate(rayDir)
+									* powerHeuristic(rayPdf,
+													scene->pdfLightWeightedDistance(shadingData, r, true))
+									* pathThroughput;
 					break;
 				}
 				else if (newShadingData.bsdf->isLight())
 				{
-					if (wasSpecular)
-					{
-						result = result + newShadingData.bsdf->emit(newShadingData, newShadingData.wo) * pathThroughput;
-					}
-					else
-					{
-						result = result + newShadingData.bsdf->emit(newShadingData, newShadingData.wo)
-										* powerHeuristic(rayPdf,
-														 scene->pdfLightWeightedDistance(shadingData, r, false))
-										* pathThroughput;
-					}
+					result = result + newShadingData.bsdf->emit(newShadingData, newShadingData.wo)
+									* powerHeuristic(rayPdf,
+														scene->pdfLightWeightedDistance(shadingData, r, false))
+									* pathThroughput;
 					break;
 				}
 				else
@@ -449,7 +422,7 @@ public:
 
 		if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
 		{
-			std::cout << "NaN!" << std::endl;
+			//std::cout << "NaN!" << std::endl;
 			return;
 		}
 
@@ -502,6 +475,10 @@ public:
 					unsigned int myTile;
 					while ((myTile = tileCount++) < maxTiles && !stop.stop_requested())
 					{
+#ifdef CountTiles
+						if (myTile % 250 == 0)
+							std::cout << "Drawing tile: " << myTile << std::endl;
+#endif
 						renderTile(myTile, &(samplers[i]), fast, xL, xR, yT, yB);
 					}
 				};
