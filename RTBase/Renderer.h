@@ -39,7 +39,37 @@ public:
 		scene = _scene;
 		canvas = _canvas;
 		film = new Film();
-		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new GaussianFilter(2,2));
+		unsigned int width = (unsigned int)scene->camera.width;
+		unsigned int height = (unsigned int)scene->camera.height;
+
+#ifdef Denoise
+		film->oidnDevice = oidn::newDevice(oidn::DeviceType::CPU);
+		film->oidnDevice.commit();
+
+		film->albedos = new Colour[width * height];
+		film->normals = new Vec3[width * height];
+
+		film->colorBuff = new float[width * height * 3];
+		film->albedoBuff = new float[width * height * 3];
+		film->normalBuff = new float[width * height * 3];
+		film->denoisedBuff = new float[width * height * 3];
+		film->currentRenderBuff = film->denoisedBuff;
+
+		film->oidnFilter = film->oidnDevice.newFilter("RT");
+		film->oidnFilter.setImage("color", film->colorBuff, oidn::Format::Float3, width, height);
+		film->oidnFilter.setImage("albedo", film->albedoBuff, oidn::Format::Float3, width, height);
+		film->oidnFilter.setImage("normal", film->normalBuff, oidn::Format::Float3, width, height);
+		film->oidnFilter.setImage("output", film->denoisedBuff, oidn::Format::Float3, width, height);
+		film->oidnFilter.set("hdr", true);
+#ifdef DenoiseCleanAux
+		film->oidnFilter.set("cleanAux", true);
+#endif
+		film->oidnFilter.commit();
+
+		film->init(width, height, new BoxFilter);
+#else
+		film->init(width, height, new MitchellNetravaliFilter);
+#endif
 
 		maxTiles = std::ceil(film->width / (float)tileSize) * std::ceil(film->height / (float)tileSize);
 		samplers = new MTRandom[threads.size()];
@@ -52,6 +82,41 @@ public:
 	void clear()
 	{
 		film->clear();
+#ifdef DenoiseCleanAux
+		for (int y = 0; y < film->height; y++)
+		{
+			for (int x = 0; x < film->width; x++)
+			{
+				Ray ray = scene->camera.generateRay(x + 0.5f, y + 0.5f);
+				IntersectionData intersection = scene->traverse(ray);
+				Vec3 normal;
+				Colour albedo;
+				if (intersection.t < FLT_MAX)
+				{
+					ShadingData shadingData = scene->calculateShadingData(intersection, ray);
+					normal = shadingData.sNormal;
+					albedo;
+					if (shadingData.bsdf->isLight())
+						albedo = shadingData.bsdf->emit(shadingData, shadingData.wo);
+					else
+						albedo = shadingData.bsdf->evaluate(shadingData, shadingData.sNormal);
+				}
+				else
+				{
+					normal = -ray.dir;
+					albedo = scene->background->evaluate(ray.dir);
+				}
+				unsigned int buffIndex = film->xyToIndex(x, y) * 3;
+				film->albedoBuff[buffIndex + 0] = albedo.r;
+				film->albedoBuff[buffIndex + 1] = albedo.g;
+				film->albedoBuff[buffIndex + 2] = albedo.b;
+
+				film->normalBuff[buffIndex + 0] = normal.x;
+				film->normalBuff[buffIndex + 1] = normal.y;
+				film->normalBuff[buffIndex + 2] = normal.z;
+			}
+		}
+#endif
 	}
 	Colour computeDirect(ShadingData shadingData, Sampler* sampler)
 	{
@@ -136,7 +201,8 @@ public:
 						{
 							float geoTerm = cosTheta * cosThetaPrime / (surfaceToLight.lengthSq());
 							Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
-							return emittedColour * bsdfColour * geoTerm * powerHeuristic(pdf * pmf, shadingData.bsdf->PDF(shadingData, wi)) / (pdf * pmf);
+							float MISw = powerHeuristic(pdf * pmf * surfaceToLight.lengthSq() / cosThetaPrime, shadingData.bsdf->PDF(shadingData, wi));
+							return emittedColour * bsdfColour * geoTerm * MISw / (pdf * pmf);
 						}
 					}
 				}
@@ -156,7 +222,8 @@ public:
 					{
 						float geoTerm = cosTheta;
 						Colour bsdfColour = shadingData.bsdf->evaluate(shadingData, wi);
-						return light->evaluate(wi) * bsdfColour * geoTerm * powerHeuristic(pdf * pmf, shadingData.bsdf->PDF(shadingData, wi)) / (pdf * pmf);
+						float MISw = powerHeuristic(pdf * pmf, shadingData.bsdf->PDF(shadingData, wi));
+						return light->evaluate(wi) * bsdfColour * geoTerm * MISw / (pdf * pmf);
 					}
 				}
 			}
@@ -294,17 +361,21 @@ public:
 
 				if (newShadingData.t == FLT_MAX)
 				{
+					float lightPdf = scene->pdfLightWeightedDistance(shadingData, newShadingData, r, true);
+					float MISw = powerHeuristic(rayPdf, lightPdf);
 					result = result + scene->background->evaluate(rayDir)
-									* powerHeuristic(rayPdf,
-													scene->pdfLightWeightedDistance(shadingData, r, true))
+									* MISw
 									* pathThroughput;
 					break;
 				}
 				else if (newShadingData.bsdf->isLight())
 				{
+					float cos = newShadingData.wo.dot(newShadingData.sNormal);
+					float lightPdf = scene->pdfLightWeightedDistance(shadingData, newShadingData, r, false);
+					lightPdf *= newShadingData.t * newShadingData.t / cos;
+					float MISw = powerHeuristic(rayPdf, lightPdf);
 					result = result + newShadingData.bsdf->emit(newShadingData, newShadingData.wo)
-									* powerHeuristic(rayPdf,
-														scene->pdfLightWeightedDistance(shadingData, r, false))
+									* MISw
 									* pathThroughput;
 					break;
 				}
@@ -348,7 +419,7 @@ public:
 			{
 				return shadingData.bsdf->emit(shadingData, shadingData.wo);
 			}
-			else if (true || shadingData.bsdf->isPureSpecular())
+			else if (shadingData.bsdf->isPureSpecular())
 			{
 				Colour pt{ 1,1,1 };
 				return fastPathTrace(r, pt, 2, sampler, true);
@@ -419,6 +490,31 @@ public:
 				col = col + pathTraceWrapper(ray, sampler);
 #endif
 		}
+
+#if defined(Denoise) && !defined(DenoiseCleanAux)
+		if (!fast)
+		{
+			IntersectionData intersection = scene->traverse(ray);
+			Vec3 normal;
+			Colour albedo;
+			if (intersection.t < FLT_MAX)
+			{
+				ShadingData shadingData = scene->calculateShadingData(intersection, ray);
+				normal = shadingData.sNormal;
+				albedo;
+				if (shadingData.bsdf->isLight())
+					albedo = shadingData.bsdf->emit(shadingData, shadingData.wo);
+				else
+					albedo = shadingData.bsdf->evaluate(shadingData, shadingData.sNormal);
+			}
+			else
+			{
+				normal = -ray.dir;
+				albedo = scene->background->evaluate(ray.dir);
+			}
+			film->denoiseData(x, y, albedo, normal);
+		}
+#endif
 
 		if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
 		{
@@ -512,6 +608,20 @@ public:
 
 		if (fast)
 		{
+#ifdef Denoise
+			for (unsigned int y = yT; y < yB; y++)
+			{
+				for (unsigned int x = xL; x < xR; x++)
+				{
+					unsigned int index = film->xyToIndex(x, y);
+					unsigned int buffIndex = index * 3;
+
+					film->colorBuff[buffIndex + 0] = film->film[index].r / film->SPP;
+					film->colorBuff[buffIndex + 1] = film->film[index].g / film->SPP;
+					film->colorBuff[buffIndex + 2] = film->film[index].b / film->SPP;
+				}
+			}
+#endif
 			for (unsigned int y = yT; y < yB; y += 4)
 			{
 				for (unsigned int x = xL; x < xR; x += 4)
@@ -531,6 +641,38 @@ public:
 		}
 		else
 		{
+#ifdef Denoise
+			for (unsigned int y = yT; y < yB; y++)
+			{
+				for (unsigned int x = xL; x < xR; x++)
+				{
+					unsigned int index = film->xyToIndex(x, y);
+					unsigned int buffIndex = index * 3;
+
+					film->colorBuff[buffIndex + 0] = film->film[index].r / film->SPP;
+					film->colorBuff[buffIndex + 1] = film->film[index].g / film->SPP;
+					film->colorBuff[buffIndex + 2] = film->film[index].b / film->SPP;
+
+#ifndef DenoiseCleanAux
+					film->albedoBuff[buffIndex + 0] = film->albedos[index].r / film->SPP;
+					film->albedoBuff[buffIndex + 1] = film->albedos[index].g / film->SPP;
+					film->albedoBuff[buffIndex + 2] = film->albedos[index].b / film->SPP;
+
+					film->normalBuff[buffIndex + 0] = film->normals[index].x / film->SPP;
+					film->normalBuff[buffIndex + 1] = film->normals[index].y / film->SPP;
+					film->normalBuff[buffIndex + 2] = film->normals[index].z / film->SPP;
+#endif
+				}
+			}
+
+			film->oidnDevice.sync();
+			film->oidnFilter.execute();
+			film->oidnDevice.sync();
+			const char* errorMessage;
+			if (film->oidnDevice.getError(errorMessage) != oidn::Error::None)
+				printf("Error: %s\n", errorMessage);
+#endif
+
 			for (unsigned int y = yT; y < yB; y++)
 			{
 				for (unsigned int x = xL; x < xR; x++)

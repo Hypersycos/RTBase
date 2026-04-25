@@ -6,6 +6,7 @@
 #include "Imaging.h"
 #include "Materials.h"
 #include "Lights.h"
+#include <unordered_map>
 
 class Camera
 {
@@ -79,6 +80,7 @@ public:
 	std::vector<Triangle> triangles;
 	std::vector<BSDF*> materials;
 	std::vector<Light*> lights;
+	std::unordered_map<BSDF*, Light*> bsdfToLight;
 	Light* background = NULL;
 	float lightPMF = 0;
 	BVHNode* bvh = NULL;
@@ -100,6 +102,7 @@ public:
 				light->triangle = &triangles[i];
 				light->emission = materials[triangles[i].materialIndex]->emission;
 				lights.push_back(light);
+				bsdfToLight.emplace(materials[triangles[i].materialIndex], light);
 
 				lightPMF += light->totalIntegratedPower();
 			}
@@ -172,10 +175,13 @@ public:
 		return lights[currentTarget];
 	}
 
-	float pdfLightWeightedDistance(ShadingData& data, Ray r, bool environment)
+	float pdfLightWeightedDistance(ShadingData& data, ShadingData& newData, Ray r, bool environment)
 	{
 		if (lightPMF == 0 || lights.size() > 100)
-			return 1.0f / lights.size();
+			if (environment)
+				return 1.0f / lights.size() * background->PDF(newData, -r.dir);
+			else
+				return 1.0f / lights.size() * bsdfToLight[newData.bsdf]->PDF(newData, -r.dir);
 
 		float targetWeight = 0;
 		float targetPdf = 0;
@@ -189,7 +195,7 @@ public:
 				AreaLight* areaLight = dynamic_cast<AreaLight*>(lights[i]);
 				weight = lights[i]->totalIntegratedPower() / (areaLight->triangle->centre() - data.x).length();
 				float t, u, v;
-				if (areaLight->triangle->rayIntersect(r, t, u, v))
+				if (lights[i] == bsdfToLight[newData.bsdf])
 				{
 					targetWeight = weight;
 					targetPdf = lights[i]->PDF(data, r.dir);
@@ -232,6 +238,7 @@ public:
 		if (background->totalIntegratedPower() > 0)
 		{
 			lights.push_back(background);
+			lightPMF += background->totalIntegratedPower();
 		}
 	}
 	bool visible(const Vec3& p1, const Vec3& p2)

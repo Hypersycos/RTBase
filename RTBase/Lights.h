@@ -133,6 +133,7 @@ public:
 	Texture* env;
 	std::vector<float> rowWeights;
 	std::vector<std::vector<float>> rows;
+	float power = 0;
 
 	EnvironmentMap(Texture* _env)
 	{
@@ -159,12 +160,15 @@ public:
 			}
 			rowWeights.push_back(runningCount);
 		}
+
+		power = totalIntegratedPowerCalc();
 	}
 	Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf)
 	{
 		// Assignment: Update this code to importance sampling lighting based on luminance of each pixel
 		Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
-		pdf = SamplingDistributions::uniformSpherePDF(wi);
+		pdf = SamplingDistributions::uniformHemispherePDF(wi);
+		//wi = shadingData.frame.toWorld(-wi);
 		reflectedColour = evaluate(wi);
 		return wi;
 
@@ -225,7 +229,13 @@ public:
 	{
 		return -wi;
 	}
+
 	float totalIntegratedPower()
+	{
+		return power;
+	}
+
+	float totalIntegratedPowerCalc()
 	{
 		float total = 0;
 		for (int i = 0; i < env->height; i++)
@@ -239,6 +249,7 @@ public:
 		total = total / (float)(env->width * env->height);
 		return total * 4.0f * M_PI;
 	}
+
 	Vec3 samplePositionFromLight(Sampler* sampler, float& pdf)
 	{
 		// Samples a point on the bounding sphere of the scene. Feel free to improve this.

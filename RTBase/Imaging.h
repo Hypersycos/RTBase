@@ -6,6 +6,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define __STDC_LIB_EXT1__
 #include "stb_image_write.h"
+#include <OpenImageDenoise/oidn.hpp>
 
 #define ADDITIVESAMPLES
 #define DielectricImpl
@@ -14,7 +15,9 @@
 #define DielecNoAbsorb
 //#define PlasticPhong
 #define MultipleImportanceSampling
-#define CountTiles
+#define Denoise
+//#define DenoiseCleanAux
+//#define CountTiles
 
 #if defined(NDEBUG)
 #define SAMPLESPP 1
@@ -245,6 +248,20 @@ class Film
 {
 public:
 	Colour* film;
+#ifdef Denoise
+	float* colorBuff;
+	float* albedoBuff;
+	float* normalBuff;
+	float* denoisedBuff;
+
+	float* currentRenderBuff;
+
+	oidn::FilterRef oidnFilter;
+	Colour* albedos;
+	Vec3* normals;
+	oidn::DeviceRef oidnDevice;
+#endif
+
 	unsigned int width;
 	unsigned int height;
 	int SPP;
@@ -258,6 +275,13 @@ public:
 	Colour& operator()(int x, int y)
 	{
 		return film[xyToIndex(x, y)];
+	}
+
+	void denoiseData(const float x, const float y, const Colour& albedo, const Vec3& normal)
+	{
+		unsigned int index = xyToIndex(x, y);
+		albedos[index] = albedos[index] + albedo;
+		normals[index] = normals[index] + normal;
 	}
 
 	void splat(const float x, const float y, const Colour& L)
@@ -337,8 +361,14 @@ public:
 
 	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
+#ifdef Denoise
+		unsigned int index = xyToIndex(x, y) * 3;
+
+		Colour c = Colour(currentRenderBuff[index + 0], currentRenderBuff[index + 1], currentRenderBuff[index + 2]);
+#else
 		Colour& filmC = operator()(x, y);
 		Colour c = filmC / SPP;
+#endif
 
 		float L_in = c.Lum();
 
@@ -348,7 +378,7 @@ public:
 			return;
 		}
 
-		float L_out = tonemapReinhard(c, L_in, exposure);
+		float L_out = tonemapFilmic(c, L_in, exposure);
 
 		float scalar = L_out / L_in;
 
@@ -367,12 +397,19 @@ public:
 		width = _width;
 		height = _height;
 		film = new Colour[width * height];
+
 		clear();
 		filter = _filter;
 	}
 	void clear()
 	{
 		memset(film, 0, width * height * sizeof(Colour));
+#ifdef Denoise
+#ifndef DenoiseCleanAux
+		memset(albedos, 0, width * height * sizeof(Colour));
+		memset(normals, 0, width * height * sizeof(Vec3));
+#endif
+#endif
 		SPP = 0;
 	}
 	void incrementSPP()

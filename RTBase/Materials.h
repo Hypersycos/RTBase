@@ -155,7 +155,7 @@ public:
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
 		// Add correct PDF code here
-		return SamplingDistributions::cosineHemispherePDF(wi);;
+		return SamplingDistributions::cosineHemispherePDF(shadingData.frame.toLocal(wi));;
 	}
 	bool isPureSpecular()
 	{
@@ -672,11 +672,6 @@ public:
 			else
 				D = 0;
 			float G = ShadingHelper::Gggx(wiLocal, woLocal, alpha);
-			if (fresnel * D * G / fabsf(4 * wiLocal.z * woLocal.z) <= 0)
-			{
-				std::cout << "alpha: " << alpha << std::endl;
-				std::cout << "cos2Theta" << DTan2CosTheta << std::endl;
-			}
 			Colour highlight = Colour{ 1,1,1 } * fresnel * D * G / fabsf(4 * wiLocal.z * woLocal.z);
 #ifdef DielecNoTransmit
 			Colour diffuseC = diffuse->evaluate(shadingData, wi);
