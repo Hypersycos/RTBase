@@ -229,6 +229,7 @@ void loadInstance(std::string sceneName, std::vector<Triangle>& meshTriangles, s
 		float extIOR = instance.material.find("coatingExtIOR").getValue(1.0f);
 		float thickness = instance.material.find("coatingThickness").getValue(0.0f);
 		material = new LayeredBSDF(base, sigmaa, thickness, intIOR, extIOR);
+		meshMaterials[meshMaterials.size() - 1] = material;
 	}
 	if (material == NULL)
 	{

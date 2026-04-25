@@ -9,8 +9,9 @@
 
 #define ADDITIVESAMPLES
 #define DielectricImpl
-#define DielecNoTransmit
-#define PlasticDielec
+#define LayeredImpl
+//#define DielecNoTransmit
+#define DielecNoAbsorb
 //#define PlasticPhong
 #define MultipleImportanceSampling
 #define CountTiles

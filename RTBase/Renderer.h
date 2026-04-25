@@ -348,7 +348,7 @@ public:
 			{
 				return shadingData.bsdf->emit(shadingData, shadingData.wo);
 			}
-			else if (shadingData.bsdf->isPureSpecular())
+			else if (true || shadingData.bsdf->isPureSpecular())
 			{
 				Colour pt{ 1,1,1 };
 				return fastPathTrace(r, pt, 2, sampler, true);
