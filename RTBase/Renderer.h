@@ -31,6 +31,7 @@ public:
 	Film* film;
 	MTRandom *samplers;
 	std::atomic<int> tileCount = 0;
+	std::atomic<int> pathCount = 0;
 	unsigned int tileSize = 16;
 	unsigned int maxTiles;
 
@@ -118,6 +119,83 @@ public:
 		}
 #endif
 	}
+
+	void connectToCamera(Vec3 p, Vec3 n, Colour col)
+	{
+		float x, y;
+		if (!scene->camera.projectOntoCamera(p, x, y) || !scene->visible(p, scene->camera.origin))
+		{
+			return;
+		}
+
+		Vec3 camNormal = scene->camera.viewDirection;
+		Vec3 camPos = scene->camera.origin;
+		Vec3 dirToCam = (camPos - p).normalize();
+
+		float cosTheta = camNormal.dot(-dirToCam);
+		float dist2 = (camPos - p).lengthSq();
+
+		float We = 1 / (scene->camera.Afilm * dist2 * SQ(SQ(cosTheta)));
+		
+		film->splat(x, y, col * We, film->lightTraceFilm);
+	}
+
+	void lightTrace(Sampler* sampler)
+	{
+		film->lightPaths++;
+		float pmf, pdfPosition, pdfDirection;
+		Light* light = scene->sampleLightWeighted(sampler, pmf);
+
+		Vec3 p = light->samplePositionFromLight(sampler, pdfPosition);
+		Vec3 wi = light->sampleDirectionFromLight(sampler, pdfDirection);
+
+		Colour col = light->evaluate(-wi) / (pdfPosition * pmf * pdfDirection);
+
+		Ray r;
+		r.init(p + wi * EPSILON, wi);
+		Colour pt{ 1,1,1 };
+
+		lightTracePath(r, pt, col, sampler);
+	}
+
+	void lightTracePath(Ray& r, Colour pathThroughput, Colour Le, Sampler* sampler)
+	{
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+
+		if (shadingData.t < FLT_MAX && !shadingData.bsdf->isLight())
+		{
+			Vec3 wi = (scene->camera.origin - shadingData.x).normalize();
+			Colour col = pathThroughput * shadingData.bsdf->evaluate(shadingData, wi) * Le * shadingData.gNormal.dot(wi);
+
+			if (!shadingData.bsdf->isPureSpecular())
+			{
+				connectToCamera(shadingData.x, shadingData.gNormal, col);
+			}
+
+			Ray newRay;
+			Colour sampleEffect;
+			float pdf;
+			Vec3 wo = shadingData.bsdf->sample(shadingData, sampler, sampleEffect, pdf);
+			float cosTheta = shadingData.gNormal.dot(wo);
+			if (cosTheta < 0)
+			{ //refracted
+				sampleEffect = sampleEffect * fabsf(wo.dot(shadingData.sNormal) / wo.dot(shadingData.gNormal))
+											* fabsf(wi.dot(shadingData.gNormal) / wi.dot(shadingData.sNormal));
+			}
+
+			newRay.init(shadingData.x + wo * EPSILON, wo);
+			pathThroughput = pathThroughput * sampleEffect * cosTheta / pdf;
+
+			float q = std::min(pathThroughput.Lum(), 0.9f);
+			if (sampler->next() < q)
+			{
+				pathThroughput = pathThroughput / q;
+				lightTracePath(newRay, pathThroughput, Le, sampler);
+			}
+		}
+	}
+
 	Colour computeDirect(ShadingData shadingData, Sampler* sampler)
 	{
 		// Is surface is specular we cannot computing direct lighting
@@ -347,6 +425,9 @@ public:
 			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
 			r.init(shadingData.x + rayDir * EPSILON, rayDir);
 
+			if (bsdfColour.Lum() == 0 || rayPdf == 0)
+				break;
+
 			float cosTheta = fabsf(rayDir.dot(shadingData.sNormal));
 			float cosOverPdf = cosTheta / rayPdf;
 			pathThroughput *= bsdfColour * cosOverPdf;
@@ -492,46 +573,46 @@ public:
 		}
 
 #if defined(Denoise) && !defined(DenoiseCleanAux)
-		if (!fast)
-		{
-			IntersectionData intersection = scene->traverse(ray);
-			Vec3 normal;
-			Colour albedo;
-			if (intersection.t < FLT_MAX)
-			{
-				ShadingData shadingData = scene->calculateShadingData(intersection, ray);
-				normal = shadingData.sNormal;
-				albedo;
-				if (shadingData.bsdf->isLight())
-					albedo = shadingData.bsdf->emit(shadingData, shadingData.wo);
-				else
-					albedo = shadingData.bsdf->evaluate(shadingData, shadingData.sNormal);
-			}
-			else
-			{
-				normal = -ray.dir;
-				albedo = scene->background->evaluate(ray.dir);
-			}
-			film->denoiseData(x, y, albedo, normal);
-		}
+if (!fast)
+{
+	IntersectionData intersection = scene->traverse(ray);
+	Vec3 normal;
+	Colour albedo;
+	if (intersection.t < FLT_MAX)
+	{
+		ShadingData shadingData = scene->calculateShadingData(intersection, ray);
+		normal = shadingData.sNormal;
+		albedo;
+		if (shadingData.bsdf->isLight())
+			albedo = shadingData.bsdf->emit(shadingData, shadingData.wo);
+		else
+			albedo = shadingData.bsdf->evaluate(shadingData, shadingData.sNormal);
+	}
+	else
+	{
+		normal = -ray.dir;
+		albedo = scene->background->evaluate(ray.dir);
+	}
+	film->denoiseData(x, y, albedo, normal);
+}
 #endif
 
-		if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
-		{
-			//std::cout << "NaN!" << std::endl;
-			return;
-		}
+/*if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
+{
+	std::cout << "NaN!" << std::endl;
+	return;
+}*/
 
-		if (col.r < 0 || col.g < 0 || col.b < 0)
-		{
-			std::cout << "Negative colour!" << std::endl;
-			return;
-		}
+if (col.r < 0 || col.g < 0 || col.b < 0)
+{
+	std::cout << "Negative colour!" << std::endl;
+	return;
+}
 
-		if (fast)
-			(*film)(x, y) = (*film)(x, y) + col;
-		else
-			film->splat(px, py, col);
+if (fast)
+(*film)(x, y) = (*film)(x, y) + col;
+else
+film->splat(px, py, col, film->film);
 	}
 
 	void renderST(bool fast, unsigned int xL, unsigned int xR, unsigned int yT, unsigned int yB)
@@ -548,6 +629,7 @@ public:
 		}
 		else
 		{
+#ifdef RayTrace
 			for (unsigned int y = yT; y < yB; y++)
 			{
 				for (unsigned int x = xL; x < xR; x++)
@@ -555,18 +637,26 @@ public:
 					renderPixel(x, y, samplers, fast);
 				}
 			}
+#endif
+#ifdef LightTrace
+			for (unsigned int i = 0; i < LightTrace; i++)
+			{
+				lightTrace(samplers);
+			}
+#endif
 		}
 	}
 
 	void renderMT(std::vector<TaskThread*>& threads, bool fast, unsigned int xL, unsigned int xR, unsigned int yT, unsigned int yB)
 	{
 		tileCount = 0;
+		pathCount = 0;
 
 		static std::vector<unsigned int> taskIDs;
 		taskIDs.resize(threads.size());
 		for (int i = 0; i < threads.size(); i++)
 		{
-			auto renderThread = [&,i,fast,xL,xR,yT,yB](std::stop_token stop)
+			auto renderThread = [&, i, fast, xL, xR, yT, yB](std::stop_token stop)
 				{
 					unsigned int myTile;
 					while ((myTile = tileCount++) < maxTiles && !stop.stop_requested())
@@ -575,8 +665,25 @@ public:
 						if (myTile % 250 == 0)
 							std::cout << "Drawing tile: " << myTile << std::endl;
 #endif
-						renderTile(myTile, &(samplers[i]), fast, xL, xR, yT, yB);
+#ifndef RayTrace
+						if (fast)
+#endif
+							renderTile(myTile, &(samplers[i]), fast, xL, xR, yT, yB);
 					}
+#ifdef LightTrace
+					if (!fast)
+					{
+						unsigned int myPath;
+						while ((myPath = pathCount++) < LightTrace && !stop.stop_requested())
+						{
+#ifdef CountTiles
+							if (myPath % (250 * 16) == 0)
+								std::cout << "Drawing path: " << myPath << std::endl;
+#endif
+							lightTrace(&(samplers[i]));
+						}
+					}
+#endif
 				};
 
 			taskIDs[i] = threads[i]->QueueTask(renderThread);
@@ -649,9 +756,11 @@ public:
 					unsigned int index = film->xyToIndex(x, y);
 					unsigned int buffIndex = index * 3;
 
-					film->colorBuff[buffIndex + 0] = film->film[index].r / film->SPP;
-					film->colorBuff[buffIndex + 1] = film->film[index].g / film->SPP;
-					film->colorBuff[buffIndex + 2] = film->film[index].b / film->SPP;
+					Colour c = film->getCombinedColour(index);
+
+					film->colorBuff[buffIndex + 0] = c.r;
+					film->colorBuff[buffIndex + 1] = c.g;
+					film->colorBuff[buffIndex + 2] = c.b;
 
 #ifndef DenoiseCleanAux
 					film->albedoBuff[buffIndex + 0] = film->albedos[index].r / film->SPP;

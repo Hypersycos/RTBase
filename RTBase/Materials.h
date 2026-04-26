@@ -343,6 +343,11 @@ public:
 			Vec3 wr = rayDir;
 			wr.z = -wr.z;
 
+			if (wr.z == 0)
+			{
+				reflectedColour = Colour{ 0,0,0 };
+				return shadingData.sNormal;
+			}
 			reflectedColour = Colour{ 1,1,1 } / fabsf(wr.z) * fresnel;
 			return shadingData.frame.toWorld(wr);
 		}
@@ -361,6 +366,11 @@ public:
 			float phi_out = phi_in + M_PI;
 			
 			Vec3 wt = { sinf(theta_out) * cosf(phi_out), sinf(theta_out) * sinf(phi_out), -cosf(theta_out) * (entering ? 1 : -1)};
+			if (wt.z == 0)
+			{
+				reflectedColour = Colour{ 0,0,0 };
+				return shadingData.sNormal;
+			}
 			reflectedColour = Colour{ 1,1,1 } / fabsf(wt.z) * n * n * (1 - fresnel);
 			return shadingData.frame.toWorld(wt);
 		}
@@ -1171,11 +1181,6 @@ public:
 			else
 				D = 0;
 			float G = ShadingHelper::Gggx(wiLocal, woLocal, alpha);
-			if (fresnel * D * G / fabsf(4 * wiLocal.z * woLocal.z) <= 0)
-			{
-				std::cout << "alpha: " << alpha << std::endl;
-				std::cout << "cos2Theta" << DTan2CosTheta << std::endl;
-			}
 			Colour highlight = Colour{ 1,1,1 } * fresnel * D * G / fabsf(4 * wiLocal.z * woLocal.z);
 			Colour diffuseC = DiffuseBSDF::evaluate(shadingData, wi);
 			return highlight + diffuseC * (1 - fresnel);

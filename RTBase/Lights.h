@@ -68,8 +68,12 @@ public:
 	Vec3 sampleDirectionFromLight(Sampler* sampler, float& pdf)
 	{
 		// Add code to sample a direction from the light
-		Vec3 wi = Vec3(0, 0, 1);
-		pdf = 1.0f;
+		Vec3 wi = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
+/*		float temp = wi.z;
+		wi.z = wi.y;
+		wi.y = temp;*/
+
+		pdf = SamplingDistributions::cosineHemispherePDF(wi);
 		Frame frame;
 		frame.fromVector(triangle->gNormal());
 		return frame.toWorld(wi);
@@ -172,31 +176,84 @@ public:
 		reflectedColour = evaluate(wi);
 		return wi;
 
-/*		float weight = sampler->next();
-		int i = 0;
-		int j = 0;
-		while (j < rowWeights.size() && rowWeights[j] < weight)
-		{
-			j++;
-		}
-		float start = j == 0 ? 0 : rowWeights[j - 1];
-		float target = weight - start;
+		//float weight = sampler->next();
+		//int i = 0;
+		//int j = 0;
+		//int ub = rowWeights.size();
+		//int lb = 0;
+		//while (j < rowWeights.size() && rowWeights[j] < weight)
+		//{
+		//	j++;
+		//}
+		//float start = j == 0 ? 0 : rowWeights[j - 1];
+		//float target = weight - start;
 
-		while (target > rows[j][i] && i < env->width - 1)
-		{
-			target -= rows[j][i++];
-		}
+		//while (target > rows[j][i] && i < env->width - 1)
+		//{
+		//	target -= rows[j][i++];
+		//}
 
-		reflectedColour = env->texels[j * env->width + i];
-		pdf = rows[j][i];
+		///*
+		//		int ub = rowWeights.size();
+		//int lb = 0;
+		//while (ub - lb > 1)
+		//{
+		//	int mid = (ub + lb) / 2;
+		//	if (rowWeights[mid] > weight)
+		//	{
+		//		if (rowWeights[mid - 1] <= weight)
+		//		{
+		//			j = mid;
+		//			break;
+		//		}
+		//		else
+		//			ub = mid;
+		//	}
+		//	else
+		//	{
+		//		lb = mid;
+		//	}
+		//}
 
-		float u = ((float)i + sampler->next()) / env->width;
-		float v = ((float)j + sampler->next()) / env->height;
+		//if (ub - lb == 1)
+		//	j = lb;
 
-		float theta = 2 * M_PI * u;
-		Vec3 wi = SphericalCoordinates::sphericalToWorld(theta, M_PI * v);
-		//pdf *= std::sinf(theta);
-		return wi;*/
+
+		//ub = rows[j].size();
+		//lb = 0;
+		//while (ub - lb > 1)
+		//{
+		//	int mid = (ub + lb) / 2;
+		//	if (rows[j][mid] > weight)
+		//	{
+		//		if (rows[j][mid - 1] <= weight)
+		//		{
+		//			i= mid - 1;
+		//			break;
+		//		}
+		//		else
+		//			ub = mid;
+		//	}
+		//	else
+		//	{
+		//		lb = mid;
+		//	}
+		//}
+
+		//if (ub - lb == 1)
+		//	i = lb;
+		//*/
+
+		//reflectedColour = env->texels[j * env->width + i];
+		//pdf = rows[j][i];
+
+		//float u = ((float)i + sampler->next()) / env->width;
+		//float v = ((float)j + sampler->next()) / env->height;
+
+		//float theta = 2 * M_PI * u;
+		//Vec3 wi = SphericalCoordinates::sphericalToWorld(theta, M_PI * v);
+		////pdf *= std::sinf(theta);
+		//return wi;
 	}
 	Colour evaluate(const Vec3& wi)
 	{
@@ -208,7 +265,6 @@ public:
 	}
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
-
 		// Assignment: Update this code to return the correct PDF of luminance weighted importance sampling
 		return SamplingDistributions::uniformSpherePDF(wi);
 
@@ -217,8 +273,12 @@ public:
 		u = u / (2.0f * M_PI);
 		float v = acosf(wi.y) / M_PI;
 
-		int x = std::floor(u * env->width);
-		int y = std::floor(v * env->width);
+		int x = std::min<int>(std::floor(u * env->width),env->width - 1);
+		int y = std::min<int>(std::floor(v * env->height),env->height - 1);
+		if (u < 0)
+			std::cout << "wi: " << wi << std::endl;
+		if (v < 0)
+			std::cout << "wi: " << wi << std::endl;
 		return rows[y][x];
 	}
 	bool isArea()
@@ -265,29 +325,30 @@ public:
 		Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
 		pdf = SamplingDistributions::uniformSpherePDF(wi);
 		return wi;
-/*		float weight = sampler->next();
-		int i = 0;
-		int j = 0;
-		while (j < rowWeights.size() && rowWeights[j] < weight)
-		{
-			j++;
-		}
-		float start = j == 0 ? 0 : rowWeights[j - 1];
-		double target = weight - start;
 
-		while (target > rows[j][i] && i < env->width - 1)
-		{
-			target -= rows[j][i++];
-		}
+		//float weight = sampler->next();
+		//int i = 0;
+		//int j = 0;
+		//while (j < rowWeights.size() && rowWeights[j] < weight)
+		//{
+		//	j++;
+		//}
+		//float start = j == 0 ? 0 : rowWeights[j - 1];
+		//double target = weight - start;
 
-		pdf = rows[j][i];
+		//while (target > rows[j][i] && i < env->width - 1)
+		//{
+		//	target -= rows[j][i++];
+		//}
 
-		float u = ((float)i + sampler->next()) / env->width;
-		float v = ((float)j + sampler->next()) / env->height;
+		//pdf = rows[j][i];
 
-		float theta = 2 * M_PI * u;
-		Vec3 wi = SphericalCoordinates::sphericalToWorld(theta, M_PI * v);
-		//pdf *= std::sinf(theta);
-		return wi;*/
+		//float u = ((float)i + sampler->next()) / env->width;
+		//float v = ((float)j + sampler->next()) / env->height;
+
+		//float theta = 2 * M_PI * u;
+		//Vec3 wi = SphericalCoordinates::sphericalToWorld(theta, M_PI * v);
+		////pdf *= std::sinf(theta);
+		//return wi;
 	}
 };

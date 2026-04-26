@@ -9,6 +9,8 @@
 #include <OpenImageDenoise/oidn.hpp>
 
 #define ADDITIVESAMPLES
+#define RayTrace
+//#define LightTrace film->width * film->height
 #define DielectricImpl
 #define LayeredImpl
 //#define DielecNoTransmit
@@ -18,6 +20,19 @@
 #define Denoise
 //#define DenoiseCleanAux
 //#define CountTiles
+
+#if defined(LightTrace) && defined(RayTrace)
+#define LightTWeight 0.5
+#define RayTWeight 0.5
+#elif defined(LightTrace)
+#define LightTWeight 1
+#define RayTWeight 0
+#else
+#define LightTWeight 0
+#define RayTWeight 1
+#endif
+
+
 
 #if defined(NDEBUG)
 #define SAMPLESPP 1
@@ -248,6 +263,7 @@ class Film
 {
 public:
 	Colour* film;
+	Colour* lightTraceFilm;
 #ifdef Denoise
 	float* colorBuff;
 	float* albedoBuff;
@@ -265,6 +281,7 @@ public:
 	unsigned int width;
 	unsigned int height;
 	int SPP;
+	int lightPaths;
 	ImageFilter* filter;
 
 	unsigned int xyToIndex(unsigned int x, unsigned int y)
@@ -277,6 +294,11 @@ public:
 		return film[xyToIndex(x, y)];
 	}
 
+	const Colour& getCombinedColour(unsigned int index)
+	{
+		return film[index] / SPP * RayTWeight + lightTraceFilm[index] / SPP * LightTWeight;
+	}
+
 	void denoiseData(const float x, const float y, const Colour& albedo, const Vec3& normal)
 	{
 		unsigned int index = xyToIndex(x, y);
@@ -284,7 +306,7 @@ public:
 		normals[index] = normals[index] + normal;
 	}
 
-	void splat(const float x, const float y, const Colour& L)
+	void splat(const float x, const float y, const Colour& L, Colour* dest)
 	{
 		// Code to splat a smaple with colour L into the image plane using an ImageFilter
 
@@ -317,13 +339,8 @@ public:
 
 		for (int i = 0; i < indices.size(); i++)
 		{
-			film[indices[i]] = film[indices[i]] + (L * filterWeights[i] / total);
+			dest[indices[i]] = dest[indices[i]] + (L * filterWeights[i] / total);
 		}
-
-/*		if (std::isnan(L.r) || std::isinf(L.r) || L.Lum() < -1 || L.Lum() > 2)
-		{
-			std::cout << L.Lum() << std::endl;
-		}*/
 	}
 
 	float tonemapLinearWithExposure(Colour& c, float L_in, float exposure = 1.0f)
@@ -397,6 +414,7 @@ public:
 		width = _width;
 		height = _height;
 		film = new Colour[width * height];
+		lightTraceFilm = new Colour[width * height];
 
 		clear();
 		filter = _filter;
@@ -404,6 +422,7 @@ public:
 	void clear()
 	{
 		memset(film, 0, width * height * sizeof(Colour));
+		memset(lightTraceFilm, 0, width * height * sizeof(Colour));
 #ifdef Denoise
 #ifndef DenoiseCleanAux
 		memset(albedos, 0, width * height * sizeof(Colour));
@@ -411,6 +430,7 @@ public:
 #endif
 #endif
 		SPP = 0;
+		lightPaths = 0;
 	}
 	void incrementSPP()
 	{
