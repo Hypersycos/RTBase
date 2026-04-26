@@ -14,6 +14,27 @@ public:
 	float sceneRadius;
 };
 
+class VPL
+{
+	ShadingData shadingData;
+	Colour Le;
+
+	Colour evaluate(const ShadingData& hitData, Scene* scene)
+	{
+		if (!scene->visible(shadingData.x, hitData.x))
+			return Colour{ 0,0,0 };
+		Vec3 pointToLight = shadingData.x - hitData.x;
+		Vec3 wi = pointToLight.normalize();
+		float cosT = shadingData.sNormal.dot(-wi);
+		if (cosT < 0)
+			return Colour{ 0,0,0 };
+
+		float cosT2 = hitData.sNormal.dot(wi);
+
+		return Le * cosT * cosT2
+	}
+};
+
 class Light
 {
 public:

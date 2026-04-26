@@ -14,8 +14,8 @@
 //#define DielecNoTransmit
 #define DielecNoAbsorb
 //#define PlasticPhong
-#define MultipleImportanceSampling
-#define Denoise
+//#define MultipleImportanceSampling
+//#define Denoise
 //#define DenoiseCleanAux
 //#define CountTiles
 
@@ -248,7 +248,6 @@ class Film
 {
 public:
 	Colour* film;
-#ifdef Denoise
 	float* colorBuff;
 	float* albedoBuff;
 	float* normalBuff;
@@ -260,7 +259,6 @@ public:
 	Colour* albedos;
 	Vec3* normals;
 	oidn::DeviceRef oidnDevice;
-#endif
 
 	unsigned int width;
 	unsigned int height;
