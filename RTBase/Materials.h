@@ -187,14 +187,14 @@ public:
 		wi.x = -wi.x;
 		wi.y = -wi.y;
 		pdf = 1;
-		reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / wi.z;
+		reflectedColour = Colour{ 1,1,1 } / wi.z;
 		wi = shadingData.frame.toWorld(wi);
 		return wi;
 	}
 	Colour evaluate(const ShadingData& shadingData, const Vec3& wi)
 	{
 		// Replace this with Mirror evaluation code
-		return albedo->sample(shadingData.tu, shadingData.tv) / wi.dot(shadingData.sNormal);
+		return Colour{ 1,1,1 } / wi.dot(shadingData.sNormal);
 	}
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
@@ -1016,12 +1016,28 @@ public:
 #else
 	Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf)
 	{
+		Vec3 wo = shadingData.frame.toLocal(shadingData.wo);
+
 		if (alpha < EPSILON)
 		{
-			return mirror->sample(shadingData, sampler, reflectedColour, pdf);
+			float fresnel = ShadingHelper::fresnelDielectric(wo.z, intIOR, extIOR);
+			if (fresnel == -1)
+				fresnel = 1;
+			if (sampler->next() <= fresnel)
+			{
+				Vec3 wi = mirror->sample(shadingData, sampler, reflectedColour, pdf);
+				reflectedColour = reflectedColour * fresnel;
+				pdf *= fresnel;
+				return wi;
+			}
+			else
+			{
+				Vec3 wi = DiffuseBSDF::sample(shadingData, sampler, reflectedColour, pdf);
+				pdf *= (1 - fresnel);
+				reflectedColour = reflectedColour * (1 - fresnel);
+				return wi;
+			}
 		}
-
-		Vec3 wo = shadingData.frame.toLocal(shadingData.wo);
 
 		Vec3 wh = Vec3(alpha * wo.x, alpha * wo.y, wo.z).normalize();
 		if (wh.z < 0)
@@ -1104,11 +1120,6 @@ public:
 	}
 	Colour evaluate(const ShadingData& shadingData, const Vec3& wi)
 	{
-		if (alpha < EPSILON)
-		{
-			return mirror->evaluate(shadingData, wi);
-		}
-
 		Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
 		Vec3 wiLocal = shadingData.frame.toLocal(wi);
 
@@ -1135,6 +1146,12 @@ public:
 		float fresnel = ShadingHelper::fresnelDielectric(fabsf(woLocal.dot(wm)), innerIndex, outerIndex);
 		if (fresnel == -1)
 			fresnel = 1;
+
+		if (alpha < EPSILON)
+		{
+			return mirror->evaluate(shadingData, wi) * fresnel + DiffuseBSDF::evaluate(shadingData, wi) * (1 - fresnel);
+		}
+
 		if (reflect)
 		{ //reflect
 			//float D = ShadingHelper::Dggx(wm, alpha);
@@ -1161,7 +1178,7 @@ public:
 			}
 			Colour highlight = Colour{ 1,1,1 } * fresnel * D * G / fabsf(4 * wiLocal.z * woLocal.z);
 			Colour diffuseC = DiffuseBSDF::evaluate(shadingData, wi);
-			return highlight + diffuseC * M_1_PI * (1 - fresnel);
+			return highlight + diffuseC * (1 - fresnel);
 		}
 		else
 		{ //refract
@@ -1192,7 +1209,7 @@ public:
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
 		if (alpha < EPSILON)
-			return 0;
+			return DiffuseBSDF::PDF(shadingData, wi);
 
 		Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
 		Vec3 wiLocal = shadingData.frame.toLocal(wi);
@@ -1269,10 +1286,6 @@ public:
 
 			return D2 * dwm_dwi * (1 - fresnel);
 		}
-	}
-	bool isPureSpecular()
-	{
-		return alpha < EPSILON;
 	}
 #endif
 	float mask(const ShadingData& shadingData)
