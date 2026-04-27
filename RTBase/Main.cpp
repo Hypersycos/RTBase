@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 	// runTests()
 	
 	// Initialize default parameters
-	std::string sceneName = "scenes/MaterialsScene";
+	std::string sceneName = "scenes/kitchen";
 	//sceneName = "scenes/cornell-box";
 	std::string filename = "GI.hdr";
 	unsigned int SPP = 8192;
@@ -89,7 +89,6 @@ int main(int argc, char *argv[])
 	while (running)
 	{
 		canvas.checkInput();
-		canvas.clear();
 
 		if (canvas.keyPressed(VK_ESCAPE))
 		{
@@ -219,7 +218,13 @@ int main(int argc, char *argv[])
 
 		// Time how long a render call takes
 		timer.reset();
-		rt.render(threads, fast, xL, xR, yT, yB);
+#ifdef TargetSPP
+		if (rt.film->SPP < TargetSPP)
+#endif
+		{
+			canvas.clear();
+			rt.render(threads, fast, xL, xR, yT, yB);
+		}
 		float t = timer.dt();
 		fastDebounce -= t;
 		// Write

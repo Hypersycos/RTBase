@@ -54,7 +54,11 @@ public:
 		film->albedoBuff = new float[width * height * 3];
 		film->normalBuff = new float[width * height * 3];
 		film->denoisedBuff = new float[width * height * 3];
+#ifdef DefaultDenoised
 		film->currentRenderBuff = film->denoisedBuff;
+#else
+		film->currentRenderBuff = film->colorBuff;
+#endif
 
 		film->oidnFilter = film->oidnDevice.newFilter("RT");
 		film->oidnFilter.setImage("color", film->colorBuff, oidn::Format::Float3, width, height);
@@ -142,7 +146,6 @@ public:
 
 	void lightTrace(Sampler* sampler)
 	{
-		film->lightPaths++;
 		float pmf, pdfPosition, pdfDirection;
 		Light* light = scene->sampleLightWeighted(sampler, pmf);
 
@@ -182,6 +185,7 @@ public:
 			{ //refracted
 				sampleEffect = sampleEffect * fabsf(wo.dot(shadingData.sNormal) / wo.dot(shadingData.gNormal))
 											* fabsf(wi.dot(shadingData.gNormal) / wi.dot(shadingData.sNormal));
+				cosTheta = -cosTheta;
 			}
 
 			newRay.init(shadingData.x + wo * EPSILON, wo);
@@ -490,6 +494,77 @@ public:
 		return scene->background->evaluate(r.dir);
 	}
 
+	void sampleVPLsFromLight(Light* light, ShadingData& shadingData, Sampler* sampler, Colour& result)
+	{
+#ifdef InstantRadiositySampleX
+		int i = 0;
+		std::vector<VPL>& vec = scene->vpls[light];
+		while (sampler->next() > InstantRadiositySampleX && i < vec.size())
+			i++;
+		Colour temp;
+		while (i < vec.size())
+		{
+			Colour c = scene->evaluateVPL(vec[i], shadingData) / InstantRadiositySampleX;
+			temp = temp + c;
+			while (sampler->next() > InstantRadiositySampleX && i < vec.size())
+				i++;
+		}
+		result = result + temp / (InstantRadiosity * InstantRadiositySampleX);
+#elif defined(InstantRadiosity)
+		Colour temp;
+		for (VPL& vpl : scene->vpls[light])
+		{
+			Colour c = scene->evaluateVPL(vpl, shadingData);
+			temp = temp + c;
+		}
+		result = result + temp / InstantRadiosity;
+#endif
+	}
+
+	Colour instantRadiosity(Ray r, Sampler* sampler)
+	{
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+		Colour pt = { 1,1,1 };
+		while (shadingData.t < FLT_MAX && shadingData.bsdf->isPureSpecular())
+		{
+			float mult;
+			Colour colourMult;
+			Vec3 wi = shadingData.bsdf->sample(shadingData, sampler, colourMult, mult);
+			float cosT = fabsf(wi.dot(shadingData.sNormal));
+			pt = pt * colourMult * cosT / mult;
+
+			r.init(shadingData.x + wi * EPSILON, wi);
+
+			intersection = scene->traverse(r);
+			shadingData = scene->calculateShadingData(intersection, r);
+		}
+
+		if (shadingData.t < FLT_MAX)
+		{
+			if (shadingData.bsdf->isLight())
+			{
+				return pt * shadingData.bsdf->emit(shadingData, shadingData.wo);
+			}
+			Colour direct = computeDirect(shadingData, sampler);
+			Colour indirect;
+#ifdef InstantRadiosityRandomLight
+			float pmf;
+			Light* light = scene->sampleLightUniform(sampler, pmf);
+			sampleVPLsFromLight(light, shadingData, sampler, indirect);
+			indirect = indirect / scene->lights.size();
+#else
+			for (Light* light : scene->lights)
+			{
+				sampleVPLsFromLight(light, shadingData, sampler, indirect);
+			}
+			indirect = indirect / scene->lights.size();
+#endif
+			return pt * (direct + indirect);
+		}
+		return pt * scene->background->evaluate(r.dir);
+	}
+
 	Colour approxTrace(Ray& r, Sampler* sampler)
 	{
 		IntersectionData intersection = scene->traverse(r);
@@ -558,61 +633,65 @@ public:
 		float px = x + sampler->next();
 		float py = y + sampler->next();
 		Ray ray = scene->camera.generateRay(px, py);
-		//Colour col = direct(ray, sampler);
-		Colour col{};
+		Colour col = direct(ray, sampler);
+/*		Colour col{};
 		for (int i = 0; i < SAMPLESPP; i++)
 		{
 			if (fast)
 				col = col + approxTrace(ray, sampler);
 			else
+#ifdef InstantRadiosity
+				col = col + instantRadiosity(ray, sampler);
+#else
 #ifdef MultipleImportanceSampling
 				col = col + pathTraceMIS(ray, sampler);
 #else
 				col = col + pathTraceWrapper(ray, sampler);
 #endif
+#endif
+		}*/
+
+		/*if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
+		{
+			std::cout << "NaN!" << std::endl;
+			return;
+		}*/
+
+		if (col.r < 0 || col.g < 0 || col.b < 0)
+		{
+			std::cout << "Negative colour!" << std::endl;
+			return;
 		}
 
 #if defined(Denoise) && !defined(DenoiseCleanAux)
-if (!fast)
-{
-	IntersectionData intersection = scene->traverse(ray);
-	Vec3 normal;
-	Colour albedo;
-	if (intersection.t < FLT_MAX)
-	{
-		ShadingData shadingData = scene->calculateShadingData(intersection, ray);
-		normal = shadingData.sNormal;
-		albedo;
-		if (shadingData.bsdf->isLight())
-			albedo = shadingData.bsdf->emit(shadingData, shadingData.wo);
-		else
-			albedo = shadingData.bsdf->evaluate(shadingData, shadingData.sNormal);
-	}
-	else
-	{
-		normal = -ray.dir;
-		albedo = scene->background->evaluate(ray.dir);
-	}
-	film->denoiseData(x, y, albedo, normal);
-}
+		if (!fast)
+		{
+			IntersectionData intersection = scene->traverse(ray);
+			Vec3 normal;
+			Colour albedo;
+			if (intersection.t < FLT_MAX)
+			{
+				ShadingData shadingData = scene->calculateShadingData(intersection, ray);
+				normal = shadingData.sNormal;
+				albedo;
+				if (shadingData.bsdf->isLight())
+					albedo = shadingData.bsdf->emit(shadingData, shadingData.wo);
+				else
+					albedo = shadingData.bsdf->evaluate(shadingData, shadingData.sNormal);
+			}
+			else
+			{
+				normal = -ray.dir;
+				albedo = scene->background->evaluate(ray.dir);
+			}
+			film->denoiseData(x, y, albedo, normal);
+		}
 #endif
 
-/*if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
-{
-	std::cout << "NaN!" << std::endl;
-	return;
-}*/
-
-if (col.r < 0 || col.g < 0 || col.b < 0)
-{
-	std::cout << "Negative colour!" << std::endl;
-	return;
-}
-
-if (fast)
-(*film)(x, y) = (*film)(x, y) + col;
-else
-film->splat(px, py, col, film->film);
+		if (fast)
+			(*film)(x, y) = (*film)(x, y) + col;
+		else
+			film->splat(px, py, col, film->film);
 	}
 
 	void renderST(bool fast, unsigned int xL, unsigned int xR, unsigned int yT, unsigned int yB)

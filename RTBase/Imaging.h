@@ -13,13 +13,22 @@
 //#define LightTrace film->width * film->height
 #define DielectricImpl
 #define LayeredImpl
+#define DielecRefThickness 0.1
 //#define DielecNoTransmit
-#define DielecNoAbsorb
+//#define DielecNoAbsorb
 //#define PlasticPhong
 //#define MultipleImportanceSampling
 //#define Denoise
 //#define DenoiseCleanAux
 //#define CountTiles
+//#define InstantRadiosity 100
+//#define InstantRadiosityClamp 0.2
+#define InstantRadiosityMaxBounce 3
+#define InstantRadiosityRelevance 0.25
+//#define InstantRadiosityRandomLight
+//#define InstantRadiositySampleX 0.1
+//#define DefaultDenoised
+#define TargetSPP 32
 
 #if defined(LightTrace) && defined(RayTrace)
 #define LightTWeight 0.5
@@ -31,8 +40,6 @@
 #define LightTWeight 0
 #define RayTWeight 1
 #endif
-
-
 
 #if defined(NDEBUG)
 #define SAMPLESPP 1
@@ -279,7 +286,6 @@ public:
 	unsigned int width;
 	unsigned int height;
 	int SPP;
-	int lightPaths;
 	ImageFilter* filter;
 
 	unsigned int xyToIndex(unsigned int x, unsigned int y)
@@ -428,7 +434,6 @@ public:
 #endif
 #endif
 		SPP = 0;
-		lightPaths = 0;
 	}
 	void incrementSPP()
 	{

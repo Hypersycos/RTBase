@@ -14,27 +14,6 @@ public:
 	float sceneRadius;
 };
 
-class VPL
-{
-	ShadingData shadingData;
-	Colour Le;
-
-	Colour evaluate(const ShadingData& hitData, Scene* scene)
-	{
-		if (!scene->visible(shadingData.x, hitData.x))
-			return Colour{ 0,0,0 };
-		Vec3 pointToLight = shadingData.x - hitData.x;
-		Vec3 wi = pointToLight.normalize();
-		float cosT = shadingData.sNormal.dot(-wi);
-		if (cosT < 0)
-			return Colour{ 0,0,0 };
-
-		float cosT2 = hitData.sNormal.dot(wi);
-
-		return Le * cosT * cosT2
-	}
-};
-
 class Light
 {
 public:
@@ -192,7 +171,7 @@ public:
 	{
 		// Assignment: Update this code to importance sampling lighting based on luminance of each pixel
 		Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
-		pdf = SamplingDistributions::uniformHemispherePDF(wi);
+		pdf = SamplingDistributions::uniformSpherePDF(wi);
 		//wi = shadingData.frame.toWorld(-wi);
 		reflectedColour = evaluate(wi);
 		return wi;

@@ -232,13 +232,16 @@ public:
 	}
 	Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf)
 	{
+		Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
+		Colour fresnel = ShadingHelper::fresnelConductor(woLocal.z, eta, k);
+
 		if (alpha < EPSILON)
 		{
 			Vec3 wi = shadingData.frame.toLocal(shadingData.wo);
 			wi.x = -wi.x;
 			wi.y = -wi.y;
 			pdf = 1;
-			reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) / wi.z;
+			reflectedColour = fresnel / wi.z;
 			wi = shadingData.frame.toWorld(wi);
 			return wi;
 		}
@@ -247,9 +250,6 @@ public:
 		float e2 = sampler->next();
 		float theta = std::acosf(std::sqrtf((1 - e1) / (e1 * (alpha * alpha - 1) + 1)));
 		float phi = 2 * M_PI * e2;
-
-
-		Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
 
 		Vec3 wm = SphericalCoordinates::sphericalToWorld(theta, phi);
 		Vec3 wi = -woLocal + wm * 2 * wm.dot(woLocal);
@@ -264,27 +264,27 @@ public:
 		}
 
 		float G = ShadingHelper::Gggx(wi, woLocal, alpha);
-		Colour fresnel = ShadingHelper::fresnelConductor(woLocal.z, eta, k);
-		reflectedColour = albedo->sample(shadingData.tu, shadingData.tv) * fresnel * (G * D / (4 * wi.z * woLocal.z));
+	
+		reflectedColour = fresnel * (G * D / (4 * wi.z * woLocal.z));
 
 		return shadingData.frame.toWorld(wi);
 	}
 	Colour evaluate(const ShadingData& shadingData, const Vec3& wi)
 	{
+		Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
+		Colour fresnel = ShadingHelper::fresnelConductor(woLocal.z, eta, k);
 		if (alpha < EPSILON)
 		{
-			return albedo->sample(shadingData.tu, shadingData.tv) / wi.dot(shadingData.sNormal);
+			return fresnel / wi.dot(shadingData.sNormal);
 		}
 
 		Vec3 wiLocal = shadingData.frame.toLocal(wi);
-		Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
 
 		Vec3 h = (wiLocal + woLocal).normalize();
 
 		float D = ShadingHelper::Dggx(h, alpha);
 		float G = ShadingHelper::Gggx(wiLocal, woLocal, alpha);
-		Colour fresnel = ShadingHelper::fresnelConductor(woLocal.z, eta, k);
-		return albedo->sample(shadingData.tu, shadingData.tv) * fresnel * (G * D / (4 * wiLocal.z * woLocal.z));
+		return fresnel * (G * D / (4 * wiLocal.z * woLocal.z));
 	}
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
@@ -508,7 +508,7 @@ public:
 #if !defined(DielecNoTransmit) && !defined(DielecNoAbsorb)
 		else
 		{
-			float thickness = 0.1;
+			float thickness = DielecRefThickness;
 			Colour sigma = albedo->sample(shadingData.tu, shadingData.tv);
 			sigma.r = -std::log(std::max(sigma.r, 0.001f)) / thickness;
 			sigma.g = -std::log(std::max(sigma.g, 0.001f)) / thickness;

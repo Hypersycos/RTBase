@@ -7,6 +7,7 @@
 #include "Materials.h"
 #include "Lights.h"
 #include <unordered_map>
+#include <queue>
 
 class Camera
 {
@@ -74,12 +75,37 @@ public:
 	}
 };
 
+struct VPL
+{
+	ShadingData shadingData;
+	Colour Le;
+};
+
+class FakeSampler : public MTRandom
+{
+public:
+	std::queue<float> seeded;
+	float next()
+	{
+		if (seeded.empty())
+			return MTRandom::next();
+		float val = seeded.front();
+		seeded.pop();
+		return val;
+	}
+	void seed(float val)
+	{
+		seeded.push(val);
+	}
+};
+
 class Scene
 {
 public:
 	std::vector<Triangle> triangles;
 	std::vector<BSDF*> materials;
 	std::vector<Light*> lights;
+	std::unordered_map<Light*, std::vector<VPL>> vpls;
 	std::unordered_map<BSDF*, Light*> bsdfToLight;
 	Light* background = NULL;
 	float lightPMF = 0;
@@ -107,7 +133,107 @@ public:
 				lightPMF += light->totalIntegratedPower();
 			}
 		}
+#ifdef InstantRadiosity
+		sampleVPLs(InstantRadiosity);
+#endif
 	}
+
+	void sampleVPLs(unsigned int nvpl)
+	{
+		FakeSampler sampler;
+		MTRandom baseSampler;
+		int i = 0;
+		for (Light* light : lights)
+		{
+			vpls.emplace(light, std::vector<VPL>{});
+			std::vector<VPL>& vec = vpls[light];
+			for (unsigned int i = 0; i < nvpl; i++)
+			{
+				float pct = (float)i / nvpl;
+				float vary = 1.0f / nvpl;
+				float pdfDirection;
+				float pdfPosition;
+				if (light->isArea())
+				{
+					sampler.seed(std::clamp(baseSampler.next() * vary + pct, 0.0f, 1.0f));
+					sampler.seed(baseSampler.next() * 0.25f + (i % 4) * 0.25f);
+				}
+				else
+				{
+					sampler.seed(std::clamp(baseSampler.next() * vary + pct, 0.0f, 1.0f));
+					sampler.seed(baseSampler.next() * 0.25f + (i % 4) * 0.25f);
+				}
+
+				Vec3 wi = light->sampleDirectionFromLight(&sampler, pdfDirection);
+				Vec3 p = light->samplePositionFromLight(&baseSampler, pdfPosition);
+
+				Colour col = light->evaluate(-wi) / (pdfPosition * pdfDirection);
+
+				Ray r;
+				r.init(p + wi * EPSILON, wi);
+				Colour pt{ 1,1,1 };
+
+				buildVPL(r, pt, InstantRadiosityMaxBounce, col, &baseSampler, vec);
+			}
+			std::cout << vec.size() << " VPLs generated for light " << i++ << std::endl;
+		}
+	}
+
+	void buildVPL(Ray& r, Colour pathThroughput, int depth, Colour Le, Sampler* sampler, std::vector<VPL>& vec)
+	{
+		IntersectionData intersection = traverse(r);
+		ShadingData shadingData = calculateShadingData(intersection, r);
+
+		if (shadingData.t < FLT_MAX && !shadingData.bsdf->isLight())
+		{
+			if (!shadingData.bsdf->isPureSpecular())
+			{
+				vec.push_back({ shadingData, Le * pathThroughput });
+			}
+
+			Ray newRay;
+			Colour sampleEffect;
+			float pdf;
+			Vec3 wo = shadingData.bsdf->sample(shadingData, sampler, sampleEffect, pdf);
+			float cosTheta = fabsf(shadingData.sNormal.dot(wo));
+
+			newRay.init(shadingData.x + wo * EPSILON, wo);
+			pathThroughput = pathThroughput * sampleEffect * cosTheta / pdf;
+
+			if ((pathThroughput * Le).Lum() > InstantRadiosityRelevance && depth > 0)
+			{
+				buildVPL(newRay, pathThroughput, depth - 1, Le, sampler, vec);
+			}
+		}
+	}
+
+	Colour evaluateVPL(const VPL& vpl, const ShadingData& hitData)
+	{
+		if (!visible(vpl.shadingData.x, hitData.x))
+			return Colour{ 0,0,0 };
+		Vec3 pointToLight = vpl.shadingData.x - hitData.x;
+		Vec3 wi = pointToLight.normalize();
+		float cosT = vpl.shadingData.sNormal.dot(-wi);
+		if (cosT < 0)
+			return Colour{ 0,0,0 };
+
+		float cosT2 = hitData.sNormal.dot(wi);
+		if (cosT2 < 0)
+			return Colour{ 0,0,0 };
+#ifdef InstantRadiosityClamp
+		float dist = std::max<float>(pointToLight.lengthSq(), InstantRadiosityClamp);
+#else
+		float dist = pointToLight.lengthSq();
+#endif
+		Colour vplBsdf = vpl.shadingData.bsdf->evaluate(vpl.shadingData, -wi);
+		Colour hitBsdf = hitData.bsdf->evaluate(hitData, wi);
+
+		if (std::isinf(vplBsdf.Lum()) || std::isinf(hitBsdf.Lum()) || std::isnan(vplBsdf.Lum()) || std::isnan(hitBsdf.Lum()))
+			return Colour{ 0,0,0 };
+
+		return vpl.Le * vplBsdf * hitBsdf * cosT * cosT2 / dist;
+	}
+
 	IntersectionData traverse(const Ray& ray)
 	{
 		return bvh->traverse(ray, triangles);

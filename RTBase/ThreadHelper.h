@@ -63,6 +63,8 @@ public:
     void Join(unsigned int targetTask)
     {
         std::unique_lock<std::mutex> guard(mtx);
+        if (tasksCompleted > targetTask)
+            return;
         waitOnTask.wait(guard, [&]() {return tasksCompleted > targetTask; });
     }
 
