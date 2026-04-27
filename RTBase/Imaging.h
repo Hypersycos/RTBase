@@ -18,21 +18,21 @@
 //#define DielecNoAbsorb
 //#define PlasticPhong
 //#define MultipleImportanceSampling
-//#define Denoise
+#define Denoise
 //#define DenoiseCleanAux
 //#define CountTiles
-//#define InstantRadiosity 100
-//#define InstantRadiosityClamp 0.2
-#define InstantRadiosityMaxBounce 3
+#define InstantRadiosity 16
+#define InstantRadiosityClamp 0.2
+#define InstantRadiosityMaxBounce 2
 #define InstantRadiosityRelevance 0.25
 //#define InstantRadiosityRandomLight
 //#define InstantRadiositySampleX 0.1
 //#define DefaultDenoised
-#define TargetSPP 32
+#define TargetSPP 1
 
 #if defined(LightTrace) && defined(RayTrace)
-#define LightTWeight 0.5
-#define RayTWeight 0.5
+#define LightTWeight 0.25
+#define RayTWeight 0.75
 #elif defined(LightTrace)
 #define LightTWeight 1
 #define RayTWeight 0

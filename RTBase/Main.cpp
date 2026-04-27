@@ -225,6 +225,21 @@ int main(int argc, char *argv[])
 			canvas.clear();
 			rt.render(threads, fast, xL, xR, yT, yB);
 		}
+#ifdef TargetSPP
+		else
+		{
+			for (unsigned int y = yT; y < yB; y++)
+			{
+				for (unsigned int x = xL; x < xR; x++)
+				{
+					unsigned char r, g, b;
+
+					rt.film->tonemap(x, y, r, g, b);
+					canvas.draw(x, y, r, g, b);
+				}
+			}
+		}
+#endif
 		float t = timer.dt();
 		fastDebounce -= t;
 		// Write

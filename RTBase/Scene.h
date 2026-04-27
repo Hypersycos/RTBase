@@ -279,7 +279,7 @@ public:
 			float weight;
 			if (lights[i]->isArea())
 			{
-				weight = lights[i]->totalIntegratedPower() / (dynamic_cast<AreaLight*>(lights[i])->triangle->centre() - position).length();
+				weight = lights[i]->totalIntegratedPower() / (dynamic_cast<AreaLight*>(lights[i])->triangle->centre() - position).lengthSq();
 			}
 			else
 			{
@@ -319,7 +319,7 @@ public:
 			if (lights[i]->isArea())
 			{
 				AreaLight* areaLight = dynamic_cast<AreaLight*>(lights[i]);
-				weight = lights[i]->totalIntegratedPower() / (areaLight->triangle->centre() - data.x).length();
+				weight = lights[i]->totalIntegratedPower() / (areaLight->triangle->centre() - data.x).lengthSq();
 				float t, u, v;
 				if (lights[i] == bsdfToLight[newData.bsdf])
 				{

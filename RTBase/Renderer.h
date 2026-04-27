@@ -376,6 +376,9 @@ public:
 			Vec3 rayDir = shadingData.bsdf->sample(shadingData, sampler, bsdfColour, rayPdf);
 			indirect.init(shadingData.x + rayDir * EPSILON, rayDir);
 
+			if (bsdfColour.Lum() == 0 || rayPdf == 0)
+				return direct;
+
 			float cosOverPdf = fabsf(rayDir.dot(shadingData.sNormal)) / rayPdf;
 
 			pathThroughput *= bsdfColour * cosOverPdf;
@@ -633,8 +636,8 @@ public:
 		float px = x + sampler->next();
 		float py = y + sampler->next();
 		Ray ray = scene->camera.generateRay(px, py);
-		Colour col = direct(ray, sampler);
-/*		Colour col{};
+		//Colour col = direct(ray, sampler);
+		Colour col{};
 		for (int i = 0; i < SAMPLESPP; i++)
 		{
 			if (fast)
@@ -649,7 +652,7 @@ public:
 				col = col + pathTraceWrapper(ray, sampler);
 #endif
 #endif
-		}*/
+		}
 
 		/*if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
 		{
