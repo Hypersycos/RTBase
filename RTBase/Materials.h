@@ -386,6 +386,9 @@ public:
 
 		float cosTheta = fabsf(rayDir.z);
 		float fresnel = ShadingHelper::fresnelDielectric(cosTheta, innerIndex, outerIndex);
+
+		if (fresnel == -1)
+			fresnel = 1;
 		
 		if (reflect)
 		{

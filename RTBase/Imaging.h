@@ -17,18 +17,18 @@
 //#define DielecNoTransmit
 //#define DielecNoAbsorb
 //#define PlasticPhong
-//#define MultipleImportanceSampling
+#define MultipleImportanceSampling
 #define Denoise
 //#define DenoiseCleanAux
 //#define CountTiles
-#define InstantRadiosity 16
+//#define InstantRadiosity 16
 #define InstantRadiosityClamp 0.2
 #define InstantRadiosityMaxBounce 2
 #define InstantRadiosityRelevance 0.25
 //#define InstantRadiosityRandomLight
 //#define InstantRadiositySampleX 0.1
-//#define DefaultDenoised
-#define TargetSPP 1
+#define DefaultDenoised
+//#define TargetSPP 1
 
 #if defined(LightTrace) && defined(RayTrace)
 #define LightTWeight 0.25
@@ -386,6 +386,10 @@ public:
 		unsigned int index = xyToIndex(x, y) * 3;
 
 		Colour c = Colour(currentRenderBuff[index + 0], currentRenderBuff[index + 1], currentRenderBuff[index + 2]);
+		if (currentRenderBuff == normalBuff)
+		{
+			c = (c + Colour{ 1, 1, 1 }) / 2;
+		}
 #else
 		Colour& filmC = operator()(x, y);
 		Colour c = filmC / SPP;

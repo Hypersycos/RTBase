@@ -497,6 +497,85 @@ public:
 		return scene->background->evaluate(r.dir);
 	}
 
+	Colour directWithSpecularHandling(Ray& ray, Sampler* sampler, Vec3& normal, float depth = 0)
+	{
+		IntersectionData intersection = scene->traverse(ray);
+		Colour albedo;
+		if (intersection.t < FLT_MAX)
+		{
+			ShadingData shadingData = scene->calculateShadingData(intersection, ray);
+
+			if (shadingData.bsdf->isPureSpecular())
+			{
+				if (depth > 5)
+				{
+					return Colour{ 1,1,1 };
+				}
+
+				FakeSampler fakeS;
+				fakeS.seed(0);
+				fakeS.seed(1);
+
+				Colour c; float p;
+				Vec3 r1 = shadingData.bsdf->sample(shadingData, &fakeS, c, p);
+				Vec3 r2;
+				if (!shadingData.bsdf->isTwoSided())
+					r2 = shadingData.bsdf->sample(shadingData, &fakeS, c, p);
+
+				if (shadingData.bsdf->isTwoSided() || 1 - r1.dot(r2) < EPSILON)
+				{ //only reflect, use r1
+					Ray newRay;
+					newRay.init(shadingData.x + r1 * EPSILON, r1);
+					albedo = directWithSpecularHandling(newRay, sampler, normal, depth + 1);
+					normal = shadingData.frame.toLocal(-normal);
+					normal.x = -normal.x;
+					normal.y = -normal.y;
+					normal = shadingData.frame.toWorld(normal);
+					return albedo;
+				}
+				else
+				{
+/*					normal = shadingData.sNormal;
+					return shadingData.bsdf->evaluate(shadingData, shadingData.sNormal);*/
+
+					normal = shadingData.sNormal;
+					Ray newRay1, newRay2;
+					newRay1.init(shadingData.x + r1 * EPSILON, r1);
+					newRay2.init(shadingData.x + r2 * EPSILON, r2);
+
+					float fresnel = shadingData.bsdf->evaluate(shadingData, r1).r * fabsf(r1.dot(shadingData.sNormal));
+
+					Vec3 reflectN;
+					Vec3 refractN;
+					Colour reflect = directWithSpecularHandling(newRay1, sampler, reflectN, depth + 1) * fresnel;
+					Colour refract = directWithSpecularHandling(newRay2, sampler, refractN, depth + 1) * (1 - fresnel);
+
+					reflectN = shadingData.frame.toLocal(-reflectN);
+					reflectN.x = -reflectN.x;
+					reflectN.y = -reflectN.y;
+					reflectN = shadingData.frame.toWorld(reflectN);
+
+					normal = reflectN * fresnel + refractN * (1 - fresnel);
+
+					return reflect + refract;
+				}
+			}
+			else
+			{
+				normal = shadingData.sNormal;
+				if (shadingData.bsdf->isLight())
+					return shadingData.bsdf->emit(shadingData, shadingData.wo);
+				else
+					return shadingData.bsdf->evaluate(shadingData, shadingData.sNormal);
+			}
+		}
+		else
+		{
+			normal = -ray.dir;
+			return scene->background->evaluate(ray.dir);
+		}
+	}
+
 	void sampleVPLsFromLight(Light* light, ShadingData& shadingData, Sampler* sampler, Colour& result)
 	{
 #ifdef InstantRadiositySampleX
@@ -631,28 +710,39 @@ public:
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
 
-	void renderPixel(unsigned int x, unsigned int y, Sampler* sampler, bool fast)
+	void renderPixel(unsigned int x, unsigned int y, Sampler* sampler, bool fast, bool onlyDenoise=false)
 	{
 		float px = x + sampler->next();
 		float py = y + sampler->next();
 		Ray ray = scene->camera.generateRay(px, py);
 		//Colour col = direct(ray, sampler);
 		Colour col{};
-		for (int i = 0; i < SAMPLESPP; i++)
+#ifdef Denoise
+		if (!onlyDenoise)
 		{
-			if (fast)
-				col = col + approxTrace(ray, sampler);
-			else
+#endif
+			for (int i = 0; i < SAMPLESPP; i++)
+			{
+				if (fast)
+#ifdef Denoise
+					continue;
+#else
+					col = col + approxTrace(ray, sampler);
+#endif
+				else
 #ifdef InstantRadiosity
-				col = col + instantRadiosity(ray, sampler);
+					col = col + instantRadiosity(ray, sampler);
 #else
 #ifdef MultipleImportanceSampling
-				col = col + pathTraceMIS(ray, sampler);
+					col = col + pathTraceMIS(ray, sampler);
 #else
-				col = col + pathTraceWrapper(ray, sampler);
+					col = col + pathTraceWrapper(ray, sampler);
 #endif
 #endif
+			}
+#ifdef Denoise
 		}
+#endif
 
 		/*if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
 		{
@@ -667,34 +757,25 @@ public:
 		}
 
 #if defined(Denoise) && !defined(DenoiseCleanAux)
-		if (!fast)
+		if (!fast || true)
 		{
-			IntersectionData intersection = scene->traverse(ray);
 			Vec3 normal;
-			Colour albedo;
-			if (intersection.t < FLT_MAX)
-			{
-				ShadingData shadingData = scene->calculateShadingData(intersection, ray);
-				normal = shadingData.sNormal;
-				albedo;
-				if (shadingData.bsdf->isLight())
-					albedo = shadingData.bsdf->emit(shadingData, shadingData.wo);
-				else
-					albedo = shadingData.bsdf->evaluate(shadingData, shadingData.sNormal);
-			}
-			else
-			{
-				normal = -ray.dir;
-				albedo = scene->background->evaluate(ray.dir);
-			}
+			Colour albedo = directWithSpecularHandling(ray, sampler, normal);
 			film->denoiseData(x, y, albedo, normal);
 		}
 #endif
 
-		if (fast)
-			(*film)(x, y) = (*film)(x, y) + col;
-		else
-			film->splat(px, py, col, film->film);
+#ifdef Denoise
+		if (!onlyDenoise)
+		{
+#endif
+			if (fast)
+				(*film)(x, y) = (*film)(x, y) + col;
+			else
+				film->splat(px, py, col, film->film);
+#ifdef Denoise
+		}
+#endif
 	}
 
 	void renderST(bool fast, unsigned int xL, unsigned int xR, unsigned int yT, unsigned int yB)
@@ -721,6 +802,15 @@ public:
 			}
 #endif
 #ifdef LightTrace
+#ifdef Denoise
+			for (unsigned int y = yT; y < yB; y++)
+			{
+				for (unsigned int x = xL; x < xR; x++)
+				{
+					renderPixel(x, y, samplers, fast, true);
+				}
+			}
+#endif
 			for (unsigned int i = 0; i < LightTrace; i++)
 			{
 				lightTrace(samplers);
@@ -748,9 +838,16 @@ public:
 							std::cout << "Drawing tile: " << myTile << std::endl;
 #endif
 #ifndef RayTrace
+#ifdef Denoise
+						renderTile(myTile, &(samplers[i]), fast, xL, xR, yT, yB, !fast);
+#else
 						if (fast)
+							renderTile(myTile, &(samplers[i]), fast, xL, xR, yT, yB, false);
 #endif
-							renderTile(myTile, &(samplers[i]), fast, xL, xR, yT, yB);
+#else
+						renderTile(myTile, &(samplers[i]), fast, xL, xR, yT, yB, false);
+#endif
+							
 					}
 #ifdef LightTrace
 					if (!fast)
@@ -805,9 +902,26 @@ public:
 					unsigned int index = film->xyToIndex(x, y);
 					unsigned int buffIndex = index * 3;
 
-					film->colorBuff[buffIndex + 0] = film->film[index].r / film->SPP;
-					film->colorBuff[buffIndex + 1] = film->film[index].g / film->SPP;
-					film->colorBuff[buffIndex + 2] = film->film[index].b / film->SPP;
+					if (film->currentRenderBuff == film->colorBuff)
+					{
+						film->colorBuff[buffIndex + 0] = film->film[index].r / film->SPP;
+						film->colorBuff[buffIndex + 1] = film->film[index].g / film->SPP;
+						film->colorBuff[buffIndex + 2] = film->film[index].b / film->SPP;
+					}
+#ifndef DenoiseCleanAux
+					else if (film->currentRenderBuff == film->albedoBuff)
+					{
+						film->albedoBuff[buffIndex + 0] = film->albedos[index].r / film->SPP;
+						film->albedoBuff[buffIndex + 1] = film->albedos[index].g / film->SPP;
+						film->albedoBuff[buffIndex + 2] = film->albedos[index].b / film->SPP;
+					}
+					else if (film->currentRenderBuff == film->normalBuff)
+					{
+						film->normalBuff[buffIndex + 0] = film->normals[index].x / film->SPP;
+						film->normalBuff[buffIndex + 1] = film->normals[index].y / film->SPP;
+						film->normalBuff[buffIndex + 2] = film->normals[index].z / film->SPP;
+					}
+#endif
 				}
 			}
 #endif
@@ -877,7 +991,7 @@ public:
 		}
 	}
 
-	void renderTile(unsigned int index, Sampler* sampler, bool fast, unsigned int xL, unsigned int xR, unsigned int yT, unsigned int yB)
+	void renderTile(unsigned int index, Sampler* sampler, bool fast, unsigned int xL, unsigned int xR, unsigned int yT, unsigned int yB, bool denoiseOnly)
 	{
 		unsigned int width = xR - xL;
 		unsigned int height = yB - yT;
@@ -895,7 +1009,7 @@ public:
 			{
 				for (unsigned int x = xstart; x < xend; x += 4)
 				{
-					renderPixel(x, y, sampler, fast);
+					renderPixel(x, y, sampler, fast, denoiseOnly);
 				}
 			}
 		}
@@ -905,7 +1019,7 @@ public:
 			{
 				for (unsigned int x = xstart; x < xend; x++)
 				{
-					renderPixel(x, y, sampler, fast);
+					renderPixel(x, y, sampler, fast, denoiseOnly);
 				}
 			}
 		}
