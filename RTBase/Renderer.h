@@ -543,7 +543,7 @@ public:
 					newRay1.init(shadingData.x + r1 * EPSILON, r1);
 					newRay2.init(shadingData.x + r2 * EPSILON, r2);
 
-					float fresnel = shadingData.bsdf->evaluate(shadingData, r1).r * fabsf(r1.dot(shadingData.sNormal));
+					float fresnel = 1 - p;// shadingData.bsdf->evaluate(shadingData, r1).r* fabsf(r1.dot(shadingData.sNormal));
 
 					Vec3 reflectN;
 					Vec3 refractN;
@@ -744,11 +744,11 @@ public:
 		}
 #endif
 
-		/*if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
+		if (std::isnan(col.r) || std::isnan(col.g) || std::isnan(col.b))
 		{
 			std::cout << "NaN!" << std::endl;
 			return;
-		}*/
+		}
 
 		if (col.r < 0 || col.g < 0 || col.b < 0)
 		{
@@ -838,7 +838,7 @@ public:
 							std::cout << "Drawing tile: " << myTile << std::endl;
 #endif
 #ifndef RayTrace
-#ifdef Denoise
+#if defined(Denoise) && !defined(DenoiseCleanAux)
 						renderTile(myTile, &(samplers[i]), fast, xL, xR, yT, yB, !fast);
 #else
 						if (fast)
